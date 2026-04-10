@@ -7,6 +7,7 @@ import type {
 	TaskId,
 	TaskStatus,
 	TaskResult,
+	TaskProgress,
 	StageAttemptId,
 } from "./types.js";
 
@@ -43,6 +44,8 @@ export type TaskState = {
 	attempts: TaskAttemptRecord[];
 	/** Most recent streaming progress lines (ring buffer, last N). */
 	progressLines: string[];
+	/** Raw structured progress entries for rich rendering. */
+	progressEntries: TaskProgress[];
 };
 
 export type TransitionRecord = {
@@ -221,6 +224,7 @@ export function projectState(events: readonly RuntimeEvent[]): JobState {
 					existing.error = undefined;
 					existing.sessionId = sessionMap.get(event.taskAttemptId);
 					existing.progressLines = [];
+					existing.progressEntries = [];
 					existing.attempts.push(attemptRec);
 				} else {
 					tasks.set(event.taskId, {
@@ -232,6 +236,7 @@ export function projectState(events: readonly RuntimeEvent[]): JobState {
 						sessionId: sessionMap.get(event.taskAttemptId),
 						attempts: [attemptRec],
 						progressLines: [],
+						progressEntries: [],
 					});
 				}
 				break;
@@ -251,6 +256,10 @@ export function projectState(events: readonly RuntimeEvent[]): JobState {
 					ts.progressLines.push(line);
 					if (ts.progressLines.length > PROGRESS_RING_SIZE) {
 						ts.progressLines.splice(0, ts.progressLines.length - PROGRESS_RING_SIZE);
+					}
+					ts.progressEntries.push(event.progress);
+					if (ts.progressEntries.length > PROGRESS_RING_SIZE) {
+						ts.progressEntries.splice(0, ts.progressEntries.length - PROGRESS_RING_SIZE);
 					}
 				}
 				break;

@@ -14,6 +14,7 @@ export type DashboardAction =
 	| { type: "cancel" }
 	| { type: "help" }
 	| { type: "toggle_log" }
+	| { type: "view_dag" }
 	| { type: "quit" };
 
 export class DashboardView implements Component {
@@ -48,6 +49,8 @@ export class DashboardView implements Component {
 			this.onAction?.({ type: "cancel" });
 		} else if (matchesKey(data, "l")) {
 			this.onAction?.({ type: "toggle_log" });
+		} else if (matchesKey(data, "d")) {
+			this.onAction?.({ type: "view_dag" });
 		} else if (matchesKey(data, "?")) {
 			this.onAction?.({ type: "help" });
 		} else if (matchesKey(data, "q")) {
@@ -188,6 +191,7 @@ export class DashboardView implements Component {
 			keys.push(colored("c", FG_RED) + " cancel");
 		}
 		keys.push(colored("l", FG_GRAY) + " log");
+		keys.push(colored("d", FG_GRAY) + " dag");
 		keys.push(colored("?", FG_GRAY) + " help");
 		keys.push(colored("q", FG_GRAY) + " quit");
 		return " " + keys.join("  ");

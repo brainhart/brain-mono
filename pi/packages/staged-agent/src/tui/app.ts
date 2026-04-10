@@ -4,15 +4,6 @@
  * Uses pi-tui's `TUI` and `ProcessTerminal` for rendering, input, and
  * terminal management. The staged-agent views are pi-tui `Component`
  * implementations that render into the TUI's component tree.
- *
- * Usage:
- * ```ts
- * const runner = new JobRunner(definition, executor);
- * const tui = new TuiApp(runner, definition);
- * tui.start();
- * const result = await runner.run();
- * tui.stop();
- * ```
  */
 
 import { TUI, ProcessTerminal, type Terminal } from "@mariozechner/pi-tui";
@@ -25,15 +16,21 @@ import { StageView } from "./views/stage.js";
 import { TaskView } from "./views/task.js";
 import { HelpView } from "./views/help.js";
 import { EventLogView } from "./views/event-log.js";
+import { DagView } from "./views/dag.js";
+import { TranscriptView, parseTranscript } from "./views/transcript.js";
 
 type ActiveView =
 	| { type: "dashboard"; view: DashboardView }
 	| { type: "stage"; view: StageView; stageId: StageId }
 	| { type: "task"; view: TaskView; taskId: TaskId }
-	| { type: "event_log"; view: EventLogView };
+	| { type: "event_log"; view: EventLogView }
+	| { type: "dag"; view: DagView }
+	| { type: "transcript"; view: TranscriptView };
 
 export type TuiAppOpts = {
 	terminal?: Terminal;
+	/** Working directory for resolving session files. */
+	cwd?: string;
 };
 
 export class TuiApp {
@@ -41,6 +38,7 @@ export class TuiApp {
 	private readonly terminal: Terminal;
 	private readonly definition: JobDefinition;
 	private readonly runner: JobRunner;
+	private readonly cwd: string;
 	private state: JobState;
 	private viewStack: ActiveView[];
 	private helpOverlay: HelpView | undefined;
@@ -54,6 +52,7 @@ export class TuiApp {
 		this.definition = definition;
 		this.terminal = opts?.terminal ?? new ProcessTerminal();
 		this.tui = new TUI(this.terminal);
+		this.cwd = opts?.cwd ?? process.cwd();
 		this.startTime = Date.now();
 
 		this.state = {
@@ -129,6 +128,7 @@ export class TuiApp {
 				case "stage": entry.view.setState(this.state); break;
 				case "task": entry.view.setState(this.state); break;
 				case "event_log": entry.view.setEvents(this.runner.getEventLog().getEvents()); break;
+				case "dag": entry.view.setState(this.state); break;
 			}
 		}
 	}
@@ -156,7 +156,10 @@ export class TuiApp {
 				this.runner.cancel();
 				break;
 			case "toggle_log":
-				this.showEventLog();
+				this.pushView({ type: "event_log", view: this.createEventLogView() });
+				break;
+			case "view_dag":
+				this.pushView({ type: "dag", view: this.createDagView() });
 				break;
 			case "help":
 				this.showHelp();
@@ -170,10 +173,7 @@ export class TuiApp {
 	private handleStageAction(action: import("./views/stage.js").StageViewAction, stageName: string): void {
 		switch (action.type) {
 			case "back":
-				if (this.viewStack.length > 1) {
-					this.viewStack.pop();
-					this.syncActiveView();
-				}
+				this.popView();
 				break;
 			case "drill_task": {
 				const taskDef = this.findTaskDef(action.taskId);
@@ -181,8 +181,7 @@ export class TuiApp {
 				const view = new TaskView(action.taskId, taskDef, breadcrumb);
 				view.setState(this.state);
 				view.onAction = (a) => this.handleTaskAction(a);
-				this.viewStack.push({ type: "task", view, taskId: action.taskId });
-				this.syncActiveView();
+				this.pushView({ type: "task", view, taskId: action.taskId });
 				break;
 			}
 			case "help":
@@ -197,13 +196,13 @@ export class TuiApp {
 	private handleTaskAction(action: import("./views/task.js").TaskViewAction): void {
 		switch (action.type) {
 			case "back":
-				if (this.viewStack.length > 1) {
-					this.viewStack.pop();
-					this.syncActiveView();
-				}
+				this.popView();
 				break;
 			case "cancel_task":
 				this.runner.cancelTask(action.taskId, action.stageId);
+				break;
+			case "view_transcript":
+				this.openTranscript(action.taskId, action.sessionFile, action.sessionId);
 				break;
 			case "help":
 				this.showHelp();
@@ -211,6 +210,19 @@ export class TuiApp {
 			case "quit":
 				this.stop();
 				break;
+		}
+	}
+
+	private pushView(entry: ActiveView): void {
+		this.viewStack.push(entry);
+		this.syncActiveView();
+		this.tui.requestRender();
+	}
+
+	private popView(): void {
+		if (this.viewStack.length > 1) {
+			this.viewStack.pop();
+			this.syncActiveView();
 		}
 	}
 
@@ -227,24 +239,62 @@ export class TuiApp {
 		this.tui.requestRender();
 	}
 
-	private showEventLog(): void {
+	private createEventLogView(): EventLogView {
 		const view = new EventLogView();
 		view.setEvents(this.runner.getEventLog().getEvents());
-		view.onAction = (a) => {
-			switch (a.type) {
-				case "back":
-					if (this.viewStack.length > 1) {
-						this.viewStack.pop();
-						this.syncActiveView();
-					}
-					break;
-				case "help": this.showHelp(); break;
-				case "quit": this.stop(); break;
-			}
-		};
-		this.viewStack.push({ type: "event_log", view });
-		this.syncActiveView();
-		this.tui.requestRender();
+		view.onAction = (a) => this.handleGenericViewAction(a);
+		return view;
+	}
+
+	private createDagView(): DagView {
+		const view = new DagView(this.definition);
+		view.setState(this.state);
+		view.onAction = (a) => this.handleGenericViewAction(a);
+		return view;
+	}
+
+	private handleGenericViewAction(action: { type: string }): void {
+		switch (action.type) {
+			case "back": this.popView(); break;
+			case "help": this.showHelp(); break;
+			case "quit": this.stop(); break;
+		}
+	}
+
+	private openTranscript(taskId: string, sessionFile?: string, sessionId?: string): void {
+		const displayId = sessionId ?? sessionFile ?? "unknown";
+		const view = new TranscriptView(taskId, displayId);
+		view.onAction = (a) => this.handleGenericViewAction(a);
+		this.pushView({ type: "transcript", view });
+
+		if (sessionFile) {
+			view.setLoading(true);
+			this.tui.requestRender();
+
+			this.loadTranscript(sessionFile).then(
+				(entries) => {
+					view.setEntries(entries);
+					this.tui.requestRender();
+				},
+				(err) => {
+					view.setError(err instanceof Error ? err.message : String(err));
+					this.tui.requestRender();
+				},
+			);
+		} else {
+			view.setError("No session file available for this task");
+		}
+	}
+
+	private async loadTranscript(sessionFile: string): Promise<import("./views/transcript.js").TranscriptEntry[]> {
+		try {
+			const { SessionManager } = await import("@mariozechner/pi-coding-agent");
+			const sm = SessionManager.open(sessionFile);
+			const entries = sm.getEntries();
+			return parseTranscript(entries);
+		} catch (err) {
+			throw new Error(`Failed to load session: ${err instanceof Error ? err.message : String(err)}`);
+		}
 	}
 
 	private findTaskDef(taskId: TaskId): TaskDefinition | undefined {

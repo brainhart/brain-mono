@@ -53,3 +53,6 @@ export { StageView, type StageViewAction } from "./tui/views/stage.js";
 export { TaskView, type TaskViewAction } from "./tui/views/task.js";
 export { HelpView, type HelpAction } from "./tui/views/help.js";
 export { EventLogView, type EventLogViewAction } from "./tui/views/event-log.js";
+export { DagView, type DagViewAction } from "./tui/views/dag.js";
+export { TranscriptView, type TranscriptViewAction, parseTranscript } from "./tui/views/transcript.js";
+export { ProgressFeed } from "./tui/views/progress-feed.js";

@@ -4,3 +4,6 @@ export { StageView, type StageViewAction } from "./views/stage.js";
 export { TaskView, type TaskViewAction } from "./views/task.js";
 export { HelpView, type HelpAction } from "./views/help.js";
 export { EventLogView, type EventLogViewAction } from "./views/event-log.js";
+export { DagView, type DagViewAction } from "./views/dag.js";
+export { TranscriptView, type TranscriptViewAction, parseTranscript } from "./views/transcript.js";
+export { ProgressFeed } from "./views/progress-feed.js";

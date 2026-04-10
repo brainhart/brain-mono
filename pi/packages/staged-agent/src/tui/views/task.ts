@@ -6,10 +6,12 @@ import {
 	colored, statusLabel, formatDuration, horizontalRule, statusIcon,
 	FG_CYAN, FG_GRAY, FG_GREEN, FG_RED, FG_YELLOW, FG_WHITE, BOLD, DIM,
 } from "../helpers.js";
+import { ProgressFeed } from "./progress-feed.js";
 
 export type TaskViewAction =
 	| { type: "back" }
 	| { type: "cancel_task"; taskId: string; stageId: string }
+	| { type: "view_transcript"; taskId: string; sessionFile?: string; sessionId?: string }
 	| { type: "help" }
 	| { type: "quit" };
 
@@ -41,6 +43,15 @@ export class TaskView implements Component {
 			const ts = this.state?.tasks.get(this.taskId);
 			if (ts?.status === "running" && ts.stageId) {
 				this.onAction?.({ type: "cancel_task", taskId: this.taskId, stageId: ts.stageId });
+			}
+		} else if (matchesKey(data, "t")) {
+			const ts = this.state?.tasks.get(this.taskId);
+			if (ts?.result?.signals) {
+				const sessionFile = ts.result.signals.sessionFile as string | undefined;
+				const sessionId = ts.sessionId ?? ts.result.signals.sessionId as string | undefined;
+				if (sessionFile || sessionId) {
+					this.onAction?.({ type: "view_transcript", taskId: this.taskId, sessionFile, sessionId });
+				}
 			}
 		} else if (matchesKey(data, "?")) {
 			this.onAction?.({ type: "help" });
@@ -97,19 +108,12 @@ export class TaskView implements Component {
 			lines.push("");
 		}
 
-		// Streaming progress
-		if (ts && ts.progressLines.length > 0) {
-			lines.push(colored("  Live output:", BOLD, FG_CYAN));
-			lines.push("");
-			const showLines = ts.progressLines.slice(-15);
-			for (const pl of showLines) {
-				const wrapped = wrapTextWithAnsi(pl, Math.max(1, width - 4));
-				for (const wl of wrapped) lines.push("    " + wl);
-			}
-			if (ts.progressLines.length > 15) {
-				lines.push(colored(`    … ${ts.progressLines.length - 15} earlier lines`, FG_GRAY, DIM));
-			}
-			lines.push("");
+		// Streaming progress (rendered with pi-tui Box/Text matching coding-agent style)
+		if (ts && ts.progressEntries.length > 0) {
+			const feed = new ProgressFeed();
+			feed.setEntries(ts.progressEntries);
+			const feedLines = feed.render(width);
+			lines.push(...feedLines);
 		}
 
 		lines.push(horizontalRule(width));
@@ -202,6 +206,9 @@ export class TaskView implements Component {
 		const ts = this.state?.tasks.get(this.taskId);
 		if (ts?.status === "running") {
 			keys.push(colored("x", FG_RED) + " cancel task");
+		}
+		if (ts?.result?.signals?.sessionFile || ts?.sessionId) {
+			keys.push(colored("t", FG_CYAN) + " transcript");
 		}
 		keys.push(colored("esc", FG_GRAY) + " back");
 		keys.push(colored("?", FG_GRAY) + " help");

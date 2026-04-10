@@ -102,6 +102,10 @@ ls pi/packages/brain-pi-kit
 ./bin/just build-all
 ```
 
+## Pi references
+
+- [pi-coding-agent extension examples](https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent/examples/extensions)
+
 ## Tool versions (pinned in `bin/`)
 
 | Tool | Version | DotSlash file |

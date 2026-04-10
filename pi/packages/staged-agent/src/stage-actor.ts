@@ -34,13 +34,11 @@ export type StageActorMsg =
 			taskId: string;
 			note: string;
 			action: TaskOperatorAction;
-			timestamp: number;
 	  }
 	| {
 			type: "retry_task_with_note";
 			taskId: string;
 			note: string;
-			timestamp: number;
 	  }
 	| { type: "cancel" }
 	| { type: "cancel_task"; taskId: string };
@@ -123,11 +121,11 @@ export class StageActor extends Actor<StageActorMsg> {
 				break;
 
 			case "task_operator_note":
-				this.onTaskOperatorNote(msg.taskId, msg.note, msg.action, msg.timestamp);
+				this.onTaskOperatorNote(msg.taskId, msg.note, msg.action);
 				break;
 
 			case "retry_task_with_note":
-				this.onRetryTaskWithNote(msg.taskId, msg.note, msg.timestamp);
+				this.onRetryTaskWithNote(msg.taskId, msg.note);
 				break;
 
 			case "cancel":
@@ -240,22 +238,21 @@ export class StageActor extends Actor<StageActorMsg> {
 		taskId: string,
 		note: string,
 		action: TaskOperatorAction,
-		timestamp: number,
 	): void {
 		const slot = this.slots.get(taskId);
 		if (!slot) return;
 		slot.operatorNotes.push({
 			note,
 			action,
-			timestamp,
+			timestamp: Date.now(),
 		});
 	}
 
-	private onRetryTaskWithNote(taskId: string, note: string, timestamp: number): void {
+	private onRetryTaskWithNote(taskId: string, note: string): void {
 		const slot = this.slots.get(taskId);
 		if (!slot) return;
 
-		this.onTaskOperatorNote(taskId, note, "retry", timestamp);
+		this.onTaskOperatorNote(taskId, note, "retry");
 		slot.retryGuidance.push(note);
 
 		if (slot.done && slot.result?.status === "failure" && slot.attemptCount < this.maxTaskAttempts) {

@@ -5,8 +5,8 @@
  * When --ssh is provided, read/write/edit/bash run on the remote.
  *
  * Usage:
- *   pi -e ./ssh.ts --ssh user@host
- *   pi -e ./ssh.ts --ssh user@host:/remote/path
+ *   pi --extension ./pi/packages/brain-pi-kit/extensions/examples/ssh.ts --ssh user@host
+ *   pi --extension ./pi/packages/brain-pi-kit/extensions/examples/ssh.ts --ssh user@host:/remote/path
  *
  * Requirements:
  *   - SSH key-based auth (no password prompts)

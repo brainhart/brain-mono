@@ -97,6 +97,16 @@ rust-fmt:
 rust-test:
     cd rust && cargo test --workspace
 
+# ── Pi (staged-agent) ─────────────────────────────────────
+
+# Install staged-agent dependencies
+staged-agent-install:
+    cd pi/packages/staged-agent && ../../../bin/npm install
+
+# Bundle staged-agent into a single-file binary (bin/staged-agent)
+staged-agent-bundle: staged-agent-install
+    cd pi/packages/staged-agent && ../../../bin/node esbuild.config.js
+
 # ── Cross-cutting ──────────────────────────────────────────
 
 # Lint all workspaces

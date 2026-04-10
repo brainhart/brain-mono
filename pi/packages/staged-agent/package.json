@@ -5,13 +5,18 @@
   "type": "module",
   "description": "DAG-scheduled agent runtime on top of Pi sessions",
   "main": "dist/index.js",
+  "bin": {
+    "staged-agent": "bin/staged-agent"
+  },
   "scripts": {
     "build": "tsc -b",
+    "build:bundle": "node esbuild.config.js",
     "dev": "tsc -b --watch",
     "test": "node --test dist/**/*.test.js"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
+    "esbuild": "^0.28.0",
     "typescript": "^6.0.2"
   },
   "dependencies": {

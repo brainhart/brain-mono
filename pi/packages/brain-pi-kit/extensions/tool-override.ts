@@ -17,7 +17,7 @@
  * is used automatically (syntax highlighting, line numbers, truncation warnings).
  *
  * Usage:
- *   pi --extension ./pi/packages/brain-pi-kit/extensions/examples/tool-override.ts
+ *   pi --extension ./pi/packages/brain-pi-kit/extensions/tool-override.ts
  */
 
 import type { TextContent } from "@mariozechner/pi-ai";

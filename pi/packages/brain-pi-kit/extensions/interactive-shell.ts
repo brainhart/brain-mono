@@ -5,7 +5,7 @@
  * with full terminal access. The TUI suspends while they run.
  *
  * Usage:
- *   pi --extension ./pi/packages/brain-pi-kit/extensions/examples/interactive-shell.ts
+ *   pi --extension ./pi/packages/brain-pi-kit/extensions/interactive-shell.ts
  *
  *   !vim file.txt        # Auto-detected as interactive
  *   !i any-command       # Force interactive mode with !i prefix

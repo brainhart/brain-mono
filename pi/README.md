@@ -12,7 +12,7 @@ pi/
       package.json
       extensions/
         hello.ts
-        examples/   # upstream-style samples; load with --extension
+        …other sample extensions (load with --extension)
       skills/
       prompts/
     coding-agent-examples/

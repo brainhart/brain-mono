@@ -5,13 +5,17 @@ import { colored, horizontalRule, FG_CYAN, FG_GRAY, BOLD } from "../helpers.js";
 export type HelpAction = { type: "close" };
 
 const HELP_CONTENT = [
-	["↑ / k", "Move cursor up"],
-	["↓ / j", "Move cursor down"],
+	["↑ / k", "Move cursor up / scroll up"],
+	["↓ / j", "Move cursor down / scroll down"],
 	["enter", "Drill into selected item"],
 	["esc / backspace", "Go back to parent view"],
-	["p", "Pause job (dashboard only)"],
-	["r", "Resume paused job (dashboard only)"],
-	["c", "Cancel job (dashboard only)"],
+	["", ""],
+	["p", "Pause job (dashboard)"],
+	["r", "Resume paused job (dashboard)"],
+	["c", "Cancel job (dashboard)"],
+	["l", "Toggle event log"],
+	["g", "Jump to latest (event log)"],
+	["", ""],
 	["?", "Toggle this help overlay"],
 	["q", "Quit TUI (job continues in background)"],
 ] as const;
@@ -34,6 +38,7 @@ export class HelpView implements Component {
 		lines.push(horizontalRule(width));
 		lines.push("");
 		for (const [key, desc] of HELP_CONTENT) {
+			if (!key) { lines.push(""); continue; }
 			const keyStr = colored(key.padEnd(20), FG_CYAN);
 			lines.push(`  ${keyStr}${desc}`);
 		}

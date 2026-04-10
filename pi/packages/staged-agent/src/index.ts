@@ -33,7 +33,7 @@ export { TaskActor, type TaskActorMsg, type TaskActorOpts } from "./task-actor.j
 export { StageActor, type StageActorMsg, type StageActorOpts } from "./stage-actor.js";
 export { DAGSchedulerActor, type DAGSchedulerActorMsg } from "./dag-scheduler-actor.js";
 export { JobRunner, type JobRunnerOpts, type RecoveredJob } from "./job-runner.js";
-export { projectState, type StageState, type TaskState, type JobState } from "./state.js";
+export { projectState, type StageState, type TaskState, type JobState, type TaskAttemptRecord, type TransitionRecord } from "./state.js";
 export { createPiExecutor, type PiExecutorOpts } from "./pi-executor.js";
 export {
 	PiSessionPool,
@@ -49,3 +49,4 @@ export { DashboardView, type DashboardAction } from "./tui/views/dashboard.js";
 export { StageView, type StageViewAction } from "./tui/views/stage.js";
 export { TaskView, type TaskViewAction } from "./tui/views/task.js";
 export { HelpView, type HelpAction } from "./tui/views/help.js";
+export { EventLogView, type EventLogViewAction } from "./tui/views/event-log.js";

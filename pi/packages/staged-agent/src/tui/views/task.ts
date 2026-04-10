@@ -1,10 +1,10 @@
 import type { Component } from "@mariozechner/pi-tui";
 import { matchesKey, wrapTextWithAnsi } from "@mariozechner/pi-tui";
-import type { JobState } from "../../state.js";
+import type { JobState, TaskAttemptRecord } from "../../state.js";
 import type { TaskDefinition, TaskId } from "../../types.js";
 import {
-	colored, statusLabel, horizontalRule,
-	FG_CYAN, FG_GRAY, FG_GREEN, FG_RED, FG_YELLOW, FG_WHITE, BOLD,
+	colored, statusLabel, formatDuration, horizontalRule, statusIcon,
+	FG_CYAN, FG_GRAY, FG_GREEN, FG_RED, FG_YELLOW, FG_WHITE, BOLD, DIM,
 } from "../helpers.js";
 
 export type TaskViewAction =
@@ -15,15 +15,18 @@ export type TaskViewAction =
 export class TaskView implements Component {
 	private scrollOffset = 0;
 	private state: JobState | undefined;
+	private breadcrumb: string;
 	onAction: ((action: TaskViewAction) => void) | undefined;
 
 	constructor(
 		readonly taskId: TaskId,
 		private readonly taskDef: TaskDefinition | undefined,
-	) {}
+		breadcrumb?: string,
+	) {
+		this.breadcrumb = breadcrumb ?? `Job → … → ${taskId}`;
+	}
 
 	setState(state: JobState): void { this.state = state; }
-
 	invalidate(): void {}
 
 	handleInput(data: string): void {
@@ -48,16 +51,30 @@ export class TaskView implements Component {
 		const ts = state.tasks.get(this.taskId);
 		const status = ts?.status ?? "pending";
 		const attempt = ts?.attemptCount ?? 0;
+		const now = Date.now();
 
+		lines.push(colored(` ${this.breadcrumb}`, FG_GRAY, DIM));
 		lines.push(horizontalRule(width));
+
+		let timeStr = "";
+		if (ts?.startedAt) {
+			const end = ts.completedAt ?? now;
+			timeStr = "  " + colored(formatDuration(end - ts.startedAt), FG_GRAY);
+		}
+
 		lines.push(
 			colored(` Task: ${this.taskId} `, BOLD, FG_WHITE)
 			+ "  " + statusLabel(status)
-			+ (attempt > 0 ? colored(`  attempt ${attempt}`, FG_YELLOW) : ""),
+			+ (attempt > 0 ? colored(`  attempt ${attempt}`, FG_YELLOW) : "")
+			+ timeStr,
 		);
+		if (ts?.sessionId) {
+			lines.push(colored(`  session: ${ts.sessionId}`, FG_GRAY, DIM));
+		}
 		lines.push(horizontalRule(width));
 		lines.push("");
 
+		// Prompt
 		lines.push(colored("  Prompt:", BOLD, FG_CYAN));
 		lines.push("");
 		const prompt = this.taskDef?.prompt ?? "(unknown)";
@@ -65,6 +82,7 @@ export class TaskView implements Component {
 		for (const line of wrappedPrompt) lines.push("    " + line);
 		lines.push("");
 
+		// Context
 		if (this.taskDef?.context && Object.keys(this.taskDef.context).length > 0) {
 			lines.push(colored("  Context:", BOLD, FG_CYAN));
 			lines.push("");
@@ -76,6 +94,7 @@ export class TaskView implements Component {
 		lines.push(horizontalRule(width));
 		lines.push("");
 
+		// Result
 		if (ts?.result) {
 			const resultColor = ts.result.status === "success" ? FG_GREEN : FG_RED;
 			lines.push(
@@ -102,14 +121,52 @@ export class TaskView implements Component {
 				}
 				lines.push("");
 			}
+		} else if (ts?.error) {
+			lines.push(colored("  Error: ", BOLD, FG_RED) + colored(ts.error, FG_RED));
+			lines.push("");
 		} else {
 			lines.push(colored("  Result: ", BOLD, FG_CYAN) + colored("(pending)", FG_GRAY));
+			lines.push("");
+		}
+
+		// Attempt history
+		if (ts && ts.attempts.length > 1) {
+			lines.push(horizontalRule(width));
+			lines.push(colored("  Attempt History:", BOLD, FG_CYAN));
+			lines.push("");
+			for (const a of ts.attempts) {
+				lines.push(this.renderAttemptLine(a, now));
+			}
 			lines.push("");
 		}
 
 		lines.push(horizontalRule(width));
 		lines.push(this.renderFooter());
 		return lines;
+	}
+
+	private renderAttemptLine(a: TaskAttemptRecord, now: number): string {
+		const dur = a.finishedAt
+			? formatDuration(a.finishedAt - a.startedAt)
+			: formatDuration(now - a.startedAt) + "…";
+
+		let statusStr: string;
+		if (a.result) {
+			statusStr = a.result.status === "success"
+				? statusIcon("completed")
+				: statusIcon("failed");
+		} else if (a.error) {
+			statusStr = statusIcon("failed");
+		} else {
+			statusStr = statusIcon("running");
+		}
+
+		let detail = "";
+		if (a.error) detail = colored(` ${a.error}`, FG_RED);
+		else if (a.result?.status === "failure") detail = colored(` ${a.result.summary}`, FG_RED);
+		if (a.sessionId) detail += colored(` [${a.sessionId}]`, FG_GRAY, DIM);
+
+		return `    ${statusStr} #${a.attemptNumber}  ${colored(dur, FG_GRAY)}${detail}`;
 	}
 
 	private renderFooter(): string {

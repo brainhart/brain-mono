@@ -24,11 +24,13 @@ import { DashboardView } from "./views/dashboard.js";
 import { StageView } from "./views/stage.js";
 import { TaskView } from "./views/task.js";
 import { HelpView } from "./views/help.js";
+import { EventLogView } from "./views/event-log.js";
 
 type ActiveView =
 	| { type: "dashboard"; view: DashboardView }
 	| { type: "stage"; view: StageView; stageId: StageId }
-	| { type: "task"; view: TaskView; taskId: TaskId };
+	| { type: "task"; view: TaskView; taskId: TaskId }
+	| { type: "event_log"; view: EventLogView };
 
 export type TuiAppOpts = {
 	terminal?: Terminal;
@@ -60,6 +62,7 @@ export class TuiApp {
 			stages: new Map(),
 			tasks: new Map(),
 			stageResults: new Map(),
+			transitions: [],
 		};
 
 		const dashboard = new DashboardView(definition);
@@ -124,6 +127,7 @@ export class TuiApp {
 				case "dashboard": entry.view.setState(this.state); break;
 				case "stage": entry.view.setState(this.state); break;
 				case "task": entry.view.setState(this.state); break;
+				case "event_log": entry.view.setEvents(this.runner.getEventLog().getEvents()); break;
 			}
 		}
 	}
@@ -132,9 +136,11 @@ export class TuiApp {
 		switch (action.type) {
 			case "drill_stage": {
 				const stageDef = this.definition.stages.find((s) => s.id === action.stageId);
-				const view = new StageView(action.stageId, stageDef);
+				const name = stageDef?.name ?? action.stageId;
+				const breadcrumb = `Job → ${name}`;
+				const view = new StageView(action.stageId, stageDef, breadcrumb);
 				view.setState(this.state);
-				view.onAction = (a) => this.handleStageAction(a);
+				view.onAction = (a) => this.handleStageAction(a, name);
 				this.viewStack.push({ type: "stage", view, stageId: action.stageId });
 				this.syncActiveView();
 				break;
@@ -148,6 +154,9 @@ export class TuiApp {
 			case "cancel":
 				this.runner.cancel();
 				break;
+			case "toggle_log":
+				this.showEventLog();
+				break;
 			case "help":
 				this.showHelp();
 				break;
@@ -157,7 +166,7 @@ export class TuiApp {
 		}
 	}
 
-	private handleStageAction(action: import("./views/stage.js").StageViewAction): void {
+	private handleStageAction(action: import("./views/stage.js").StageViewAction, stageName: string): void {
 		switch (action.type) {
 			case "back":
 				if (this.viewStack.length > 1) {
@@ -167,7 +176,8 @@ export class TuiApp {
 				break;
 			case "drill_task": {
 				const taskDef = this.findTaskDef(action.taskId);
-				const view = new TaskView(action.taskId, taskDef);
+				const breadcrumb = `Job → ${stageName} → ${action.taskId}`;
+				const view = new TaskView(action.taskId, taskDef, breadcrumb);
 				view.setState(this.state);
 				view.onAction = (a) => this.handleTaskAction(a);
 				this.viewStack.push({ type: "task", view, taskId: action.taskId });
@@ -209,6 +219,26 @@ export class TuiApp {
 				this.tui.requestRender();
 			}
 		};
+		this.syncActiveView();
+		this.tui.requestRender();
+	}
+
+	private showEventLog(): void {
+		const view = new EventLogView();
+		view.setEvents(this.runner.getEventLog().getEvents());
+		view.onAction = (a) => {
+			switch (a.type) {
+				case "back":
+					if (this.viewStack.length > 1) {
+						this.viewStack.pop();
+						this.syncActiveView();
+					}
+					break;
+				case "help": this.showHelp(); break;
+				case "quit": this.stop(); break;
+			}
+		};
+		this.viewStack.push({ type: "event_log", view });
 		this.syncActiveView();
 		this.tui.requestRender();
 	}

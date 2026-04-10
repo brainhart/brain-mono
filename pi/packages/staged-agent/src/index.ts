@@ -35,3 +35,11 @@ export { DAGSchedulerActor, type DAGSchedulerActorMsg } from "./dag-scheduler-ac
 export { JobRunner, type JobRunnerOpts, type RecoveredJob } from "./job-runner.js";
 export { projectState, type StageState, type TaskState, type JobState } from "./state.js";
 export { createPiExecutor, type PiExecutorOpts } from "./pi-executor.js";
+export {
+	PiSessionPool,
+	createPiTaskExecutor,
+	type PiSessionPoolOpts,
+	type PiSessionPoolMsg,
+	type PiSession,
+	type PiTaskExecutorOpts,
+} from "./pi-runtime.js";

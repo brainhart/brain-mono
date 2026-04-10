@@ -1,15 +1,13 @@
 #!/usr/bin/env node
 /**
- * Demo script for the staged-agent TUI.
+ * Interactive demo for the staged-agent TUI.
  *
- * Runs a mock job with simulated tasks that emit streaming progress
- * (tool calls, text chunks) and report token usage. Demonstrates
- * all five TUI primitives:
- *   1. Streaming task output (progress events in task view)
- *   2. Pause with reason (transition function pauses with explanation)
- *   3. Task-level cancellation (x key in task view)
- *   4. Resume with input (r key passes input to scheduler)
- *   5. Token/cost aggregation (dashboard summary)
+ * Starts with an empty job in interactive mode — no pre-seeded stages.
+ * The user submits tasks through the TUI prompt (n key). Each
+ * submission creates a new stage that runs a simulated executor.
+ *
+ * Demonstrates the coding-agent workflow where the system is dropped
+ * into a project and the user decides what to do next.
  *
  * Usage:
  *   node dist/tui/demo.js
@@ -25,13 +23,14 @@ function sleep(ms: number): Promise<void> {
 
 const TOOL_NAMES = ["read", "grep", "edit", "bash", "write"];
 
-function mockStreamingExecutor(delayMs: number, failRate = 0) {
+function mockStreamingExecutor() {
 	return async (
 		task: TaskDefinition,
 		_sessionId: SessionId,
 		signal: AbortSignal,
 		onProgress?: TaskProgressCallback,
 	): Promise<TaskResult> => {
+		const delayMs = 2000 + Math.random() * 3000;
 		const steps = 6;
 		const stepMs = delayMs / steps;
 
@@ -53,15 +52,11 @@ function mockStreamingExecutor(delayMs: number, failRate = 0) {
 			}
 		}
 
-		if (Math.random() < failRate) {
-			return { status: "failure", summary: `Simulated failure for ${task.id}` };
-		}
-
 		const inputTokens = 500 + Math.floor(Math.random() * 1000);
 		const outputTokens = 200 + Math.floor(Math.random() * 500);
 		return {
 			status: "success",
-			summary: `Completed ${task.id}: ${task.prompt.slice(0, 60)}`,
+			summary: `Completed: ${task.prompt.slice(0, 80)}`,
 			signals: {
 				model: "mock-gpt-5",
 				usage: { inputTokens, outputTokens, totalTokens: inputTokens + outputTokens },
@@ -71,58 +66,24 @@ function mockStreamingExecutor(delayMs: number, failRate = 0) {
 }
 
 const definition: JobDefinition = {
-	id: "demo-job",
-	stages: [
-		{
-			id: "plan",
-			name: "Planning",
-			tasks: [
-				{ id: "plan-analyze", prompt: "Analyze the codebase and identify key components to modify" },
-				{ id: "plan-design", prompt: "Design the implementation approach for the new feature" },
-			],
-		},
-		{
-			id: "impl",
-			name: "Implementation",
-			tasks: [
-				{ id: "impl-auth", prompt: "Implement authentication middleware with JWT support" },
-				{ id: "impl-api", prompt: "Build REST API endpoints for user management" },
-				{ id: "impl-db", prompt: "Create database schema and migration scripts" },
-			],
-		},
-		{
-			id: "test",
-			name: "Testing",
-			tasks: [
-				{ id: "test-unit", prompt: "Write unit tests for auth and API modules" },
-				{ id: "test-integration", prompt: "Write integration tests for the full API flow" },
-			],
-		},
-		{
-			id: "review",
-			name: "Code Review",
-			tasks: [
-				{ id: "review-security", prompt: "Review for security vulnerabilities and best practices" },
-				{ id: "review-perf", prompt: "Review for performance issues and optimization opportunities" },
-			],
-		},
-	],
-	dependencies: [
-		{ parentStageId: "plan", childStageId: "impl" },
-		{ parentStageId: "impl", childStageId: "test" },
-		{ parentStageId: "test", childStageId: "review" },
-	],
+	id: "interactive-demo",
+	stages: [],
+	dependencies: [],
 };
 
 async function main() {
-	const executor = mockStreamingExecutor(3000, 0.1);
-	const runner = new JobRunner(definition, executor, { concurrency: 3 });
-	const tui = new TuiApp(runner, definition);
+	const executor = mockStreamingExecutor();
+	const runner = new JobRunner(definition, executor, {
+		concurrency: 3,
+		interactive: true,
+	});
+	const tui = new TuiApp(runner, definition, { interactive: true });
 
 	tui.start();
 
 	try {
 		const result = await runner.run();
+
 		await sleep(1500);
 		tui.stop();
 

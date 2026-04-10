@@ -31,6 +31,7 @@ export const sym = {
 	waiting: "◌",
 	paused: "‖",
 	skipped: "–",
+	idle: "…",
 } as const;
 
 export function statusIcon(status: string): string {
@@ -41,6 +42,7 @@ export function statusIcon(status: string): string {
 		case "waiting":   case "pending":  return colored(sym.waiting, FG_GRAY);
 		case "paused":                     return colored(sym.paused, FG_YELLOW);
 		case "skipped":                    return colored(sym.skipped, FG_GRAY, DIM);
+		case "idle":                       return colored(sym.idle, FG_YELLOW);
 		default:                           return colored("?", FG_GRAY);
 	}
 }
@@ -54,6 +56,7 @@ export function statusLabel(status: string): string {
 		case "pending":   return colored("pending", FG_GRAY);
 		case "paused":    return colored("paused", FG_YELLOW, BOLD);
 		case "skipped":   return colored("skipped", FG_GRAY, DIM);
+		case "idle":      return colored("idle", FG_YELLOW, BOLD);
 		case "success":   return colored("success", FG_GREEN);
 		case "failure":   return colored("failure", FG_RED);
 		default:          return colored(status, FG_GRAY);

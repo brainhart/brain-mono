@@ -134,6 +134,27 @@ export function projectState(events: readonly RuntimeEvent[]): JobState {
 				pauseReason = undefined;
 				break;
 
+			case "job_idle":
+				status = "idle";
+				break;
+
+			case "job_finished":
+				break;
+
+			case "stages_added": {
+				for (const sid of event.stageIds) {
+					if (!stages.has(sid)) {
+						stages.set(sid, {
+							stageId: sid,
+							status: "waiting",
+							attemptCount: 0,
+						});
+					}
+				}
+				if (status === "idle") status = "running";
+				break;
+			}
+
 			case "stage_submitted": {
 				const ss = stages.get(event.stageId);
 				if (ss) {

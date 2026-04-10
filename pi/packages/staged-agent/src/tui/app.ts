@@ -33,6 +33,8 @@ export type TuiAppOpts = {
 	terminal?: Terminal;
 	/** Working directory for resolving session files. */
 	cwd?: string;
+	/** When true, enables interactive prompt submission via the TUI. */
+	interactive?: boolean;
 };
 
 export class TuiApp {
@@ -41,6 +43,8 @@ export class TuiApp {
 	private readonly definition: JobDefinition;
 	private readonly runner: JobRunner;
 	private readonly cwd: string;
+	private readonly interactive: boolean;
+	private nextStageNum = 1;
 	private state: JobState;
 	private viewStack: ActiveView[];
 	private helpOverlay: HelpView | undefined;
@@ -57,6 +61,7 @@ export class TuiApp {
 		this.terminal = opts?.terminal ?? new ProcessTerminal();
 		this.tui = new TUI(this.terminal);
 		this.cwd = opts?.cwd ?? process.cwd();
+		this.interactive = opts?.interactive ?? false;
 		this.startTime = Date.now();
 
 		this.state = {
@@ -71,6 +76,7 @@ export class TuiApp {
 
 		const dashboard = new DashboardView(definition);
 		dashboard.setStartTime(this.startTime);
+		dashboard.setInteractive(this.interactive);
 		dashboard.setState(this.state);
 		dashboard.onAction = (a) => this.handleDashboardAction(a);
 		this.viewStack = [{ type: "dashboard", view: dashboard }];
@@ -170,6 +176,12 @@ export class TuiApp {
 				break;
 			case "view_dag":
 				this.pushView({ type: "dag", view: this.createDagView() });
+				break;
+			case "submit_prompt":
+				this.openSubmitPrompt();
+				break;
+			case "finish":
+				this.runner.finish();
 				break;
 			case "help":
 				this.showHelp();
@@ -347,6 +359,38 @@ export class TuiApp {
 					this.runner.pause(`Paused from task ${taskId}: ${a.value}`);
 				}
 			}
+			this.syncActiveView();
+			this.tui.requestRender();
+		};
+		this.textPromptOverlay = overlay;
+		this.syncActiveView();
+		this.tui.requestRender();
+	}
+
+	private openSubmitPrompt(): void {
+		const overlay = new TextPromptView(
+			"Submit new task",
+			"Describe what you want the agent to do.",
+			"e.g. Refactor the auth module to use JWT",
+		);
+		overlay.onAction = (a) => {
+			if (a.type === "cancel") {
+				this.textPromptOverlay = undefined;
+				this.syncActiveView();
+				this.tui.requestRender();
+				return;
+			}
+			this.textPromptOverlay = undefined;
+
+			const stageNum = this.nextStageNum++;
+			const stageId = `task-${stageNum}`;
+			const taskId = `${stageId}-work`;
+			this.runner.submit([{
+				id: stageId,
+				name: a.value.slice(0, 60),
+				tasks: [{ id: taskId, prompt: a.value }],
+			}]);
+
 			this.syncActiveView();
 			this.tui.requestRender();
 		};

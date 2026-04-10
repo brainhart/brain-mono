@@ -774,3 +774,212 @@ describe("JobRunner — stageResults reset on review loop", () => {
 		assert.equal(reviewResults[0].summary, "round 2");
 	});
 });
+
+describe("JobRunner — interactive mode", () => {
+	it("starts idle with no stages and stays alive", async () => {
+		const def: JobDefinition = {
+			stages: [],
+			dependencies: [],
+		};
+		const runner = new JobRunner(def, successExecutor, { interactive: true });
+		const promise = runner.run();
+
+		await new Promise((r) => setTimeout(r, 50));
+		assert.equal(runner.getJobStatus(), "idle");
+
+		runner.finish();
+		const result = await promise;
+		assert.equal(result.status, "completed");
+	});
+
+	it("accepts dynamically submitted stages and runs them", async () => {
+		const def: JobDefinition = {
+			stages: [],
+			dependencies: [],
+		};
+		const order: string[] = [];
+		const executor: TaskExecutor = async (task) => {
+			order.push(task.id);
+			return { status: "success", summary: "done" };
+		};
+
+		const runner = new JobRunner(def, executor, { interactive: true });
+		const promise = runner.run();
+
+		await new Promise((r) => setTimeout(r, 50));
+		assert.equal(runner.getJobStatus(), "idle");
+
+		runner.submit([makeStage("task-1")]);
+
+		await new Promise((r) => setTimeout(r, 100));
+
+		runner.submit([makeStage("task-2")]);
+
+		await new Promise((r) => setTimeout(r, 100));
+
+		runner.finish();
+		const result = await promise;
+
+		assert.equal(result.status, "completed");
+		assert.ok(order.includes("task-1-task"));
+		assert.ok(order.includes("task-2-task"));
+		assert.ok(result.stageResults.has("task-1"));
+		assert.ok(result.stageResults.has("task-2"));
+	});
+
+	it("supports dependencies between dynamically submitted stages", async () => {
+		const def: JobDefinition = {
+			stages: [],
+			dependencies: [],
+		};
+		const order: string[] = [];
+		const executor: TaskExecutor = async (task) => {
+			order.push(task.id);
+			return { status: "success", summary: "done" };
+		};
+
+		const runner = new JobRunner(def, executor, { interactive: true });
+		const promise = runner.run();
+
+		await new Promise((r) => setTimeout(r, 50));
+
+		runner.submit(
+			[makeStage("plan"), makeStage("impl")],
+			[{ parentStageId: "plan", childStageId: "impl" }],
+		);
+
+		await new Promise((r) => setTimeout(r, 200));
+
+		runner.finish();
+		const result = await promise;
+
+		assert.equal(result.status, "completed");
+		assert.deepEqual(order, ["plan-task", "impl-task"]);
+	});
+
+	it("returns to idle between submissions", async () => {
+		const def: JobDefinition = {
+			stages: [],
+			dependencies: [],
+		};
+		const runner = new JobRunner(def, successExecutor, { interactive: true });
+		const promise = runner.run();
+
+		await new Promise((r) => setTimeout(r, 50));
+		assert.equal(runner.getJobStatus(), "idle");
+
+		runner.submit([makeStage("s1")]);
+		await new Promise((r) => setTimeout(r, 100));
+		assert.equal(runner.getJobStatus(), "idle");
+
+		runner.submit([makeStage("s2")]);
+		await new Promise((r) => setTimeout(r, 100));
+		assert.equal(runner.getJobStatus(), "idle");
+
+		runner.finish();
+		const result = await promise;
+		assert.equal(result.status, "completed");
+		assert.ok(result.stageResults.has("s1"));
+		assert.ok(result.stageResults.has("s2"));
+	});
+
+	it("emits stages_added and job_idle events", async () => {
+		const def: JobDefinition = {
+			stages: [],
+			dependencies: [],
+		};
+		const runner = new JobRunner(def, successExecutor, { interactive: true });
+		const promise = runner.run();
+
+		await new Promise((r) => setTimeout(r, 50));
+		runner.submit([makeStage("s1")]);
+		await new Promise((r) => setTimeout(r, 100));
+		runner.finish();
+
+		await promise;
+
+		const events = runner.getEventLog().getEvents();
+		const types = events.map((e) => e.type);
+		assert.ok(types.includes("job_idle"));
+		assert.ok(types.includes("stages_added"));
+		assert.ok(types.includes("job_finished"));
+		assert.ok(types.includes("job_completed"));
+	});
+
+	it("can mix pre-seeded stages with dynamic submissions", async () => {
+		const def: JobDefinition = {
+			stages: [makeStage("initial")],
+			dependencies: [],
+		};
+		const order: string[] = [];
+		const executor: TaskExecutor = async (task) => {
+			order.push(task.id);
+			return { status: "success", summary: "done" };
+		};
+
+		const runner = new JobRunner(def, executor, { interactive: true });
+		const promise = runner.run();
+
+		await new Promise((r) => setTimeout(r, 100));
+
+		runner.submit([makeStage("followup")]);
+		await new Promise((r) => setTimeout(r, 100));
+
+		runner.finish();
+		const result = await promise;
+
+		assert.equal(result.status, "completed");
+		assert.ok(order.includes("initial-task"));
+		assert.ok(order.includes("followup-task"));
+	});
+
+	it("stays alive when stages fail in interactive mode", async () => {
+		const def: JobDefinition = {
+			stages: [],
+			dependencies: [],
+		};
+		const executor: TaskExecutor = async (task) => {
+			if (task.id === "bad-task") throw new Error("exploded");
+			return { status: "success", summary: "done" };
+		};
+
+		const runner = new JobRunner(def, executor, { interactive: true });
+		const promise = runner.run();
+
+		await new Promise((r) => setTimeout(r, 50));
+
+		runner.submit([makeStage("bad", ["bad-task"])]);
+		await new Promise((r) => setTimeout(r, 200));
+
+		assert.equal(runner.getJobStatus(), "idle");
+
+		runner.submit([makeStage("good")]);
+		await new Promise((r) => setTimeout(r, 200));
+		assert.equal(runner.getJobStatus(), "idle");
+
+		runner.finish();
+		const result = await promise;
+		assert.equal(result.status, "failed");
+		assert.ok(result.stageResults.has("good"));
+	});
+
+	it("projectState handles new event types correctly", async () => {
+		const def: JobDefinition = {
+			stages: [],
+			dependencies: [],
+		};
+		const runner = new JobRunner(def, successExecutor, { interactive: true });
+		const promise = runner.run();
+
+		await new Promise((r) => setTimeout(r, 50));
+		runner.submit([makeStage("s1")]);
+		await new Promise((r) => setTimeout(r, 100));
+		runner.finish();
+		await promise;
+
+		const state = projectState(runner.getEventLog().getEvents());
+		assert.equal(state.status, "completed");
+		assert.ok(state.stages.has("s1"));
+		assert.equal(state.stages.get("s1")?.status, "completed");
+	});
+});

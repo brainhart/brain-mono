@@ -117,7 +117,8 @@ export type JobStatus =
 	| "running"
 	| "completed"
 	| "failed"
-	| "paused";
+	| "paused"
+	| "idle";
 export type TaskStatus = "pending" | "running" | "completed" | "failed";
 
 export type JobResult = {

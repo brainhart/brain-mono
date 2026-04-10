@@ -6,6 +6,8 @@ import type {
 	JobStatus,
 	JobSnapshot,
 	StageId,
+	StageDefinition,
+	StageDependency,
 	StreamingTaskExecutor,
 	TaskResult,
 	TaskOperatorAction,
@@ -21,6 +23,12 @@ export type JobRunnerOpts = {
 	concurrency?: number;
 	/** When true, the scheduler emits job_resumed instead of job_submitted. */
 	isRecovery?: boolean;
+	/**
+	 * When true, the runner stays alive after all stages complete, entering
+	 * an "idle" state. New work can be submitted dynamically via `submit()`.
+	 * Call `finish()` to signal that no more work will be added.
+	 */
+	interactive?: boolean;
 };
 
 /**
@@ -35,6 +43,7 @@ export class JobRunner {
 
 	private readonly concurrency?: number;
 	private readonly isRecovery: boolean;
+	private readonly interactive: boolean;
 
 	constructor(
 		private readonly definition: JobDefinition,
@@ -45,6 +54,7 @@ export class JobRunner {
 		this.log = new EventLog(opts?.eventLogPath);
 		this.concurrency = opts?.concurrency;
 		this.isRecovery = opts?.isRecovery ?? false;
+		this.interactive = opts?.interactive ?? false;
 	}
 
 	async run(): Promise<JobResult> {
@@ -60,6 +70,7 @@ export class JobRunner {
 			this.executor,
 			this.pool.ref(),
 			this.log,
+			{ interactive: this.interactive },
 		);
 
 		this.scheduler.send({ type: "start", recovery: this.isRecovery });
@@ -125,6 +136,24 @@ export class JobRunner {
 
 	retryTaskWithNote(taskId: string, stageId: StageId, note: string): void {
 		this.scheduler?.send({ type: "retry_task_with_note", taskId, stageId, note });
+	}
+
+	/**
+	 * Dynamically add stages and dependencies to a running interactive job.
+	 * New stages enter the "waiting" state and are scheduled as soon as
+	 * their dependencies are met. Only valid in interactive mode.
+	 */
+	submit(stages: StageDefinition[], dependencies: StageDependency[] = []): void {
+		this.scheduler?.send({ type: "add_stages", stages, dependencies });
+	}
+
+	/**
+	 * Signal that no more work will be added. The job will complete (or
+	 * fail) once all currently queued stages finish. Only meaningful in
+	 * interactive mode.
+	 */
+	finish(): void {
+		this.scheduler?.send({ type: "finish" });
 	}
 
 	getJobStatus(): JobStatus {

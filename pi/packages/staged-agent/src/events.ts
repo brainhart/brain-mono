@@ -136,6 +136,20 @@ export type TransitionEvaluatedEvent = BaseEvent & {
 	resetStages: StageId[];
 };
 
+export type StagesAddedEvent = BaseEvent & {
+	type: "stages_added";
+	stageIds: StageId[];
+	dependencyEdges: Array<{ parent: StageId; child: StageId }>;
+};
+
+export type JobIdleEvent = BaseEvent & {
+	type: "job_idle";
+};
+
+export type JobFinishedEvent = BaseEvent & {
+	type: "job_finished";
+};
+
 export type RuntimeEvent =
 	| JobSubmittedEvent
 	| JobCompletedEvent
@@ -155,4 +169,7 @@ export type RuntimeEvent =
 	| TaskProgressEvent
 	| TaskOperatorNoteEvent
 	| SessionAttachedEvent
-	| TransitionEvaluatedEvent;
+	| TransitionEvaluatedEvent
+	| StagesAddedEvent
+	| JobIdleEvent
+	| JobFinishedEvent;

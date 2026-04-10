@@ -54,6 +54,7 @@ ts/                 TypeScript workspace (npm)
 
 go/                 Go workspace
 ├── go.work         go.work listing all modules
+├── dast/           DAST CLI with a checks subpackage
 ├── gorun/          single-file Go script runner
 └── hello-go/       example module
 
@@ -81,6 +82,7 @@ pi/                 Pi resource packages
 ./bin/just py-run
 ./bin/just ts-run
 ./bin/just go-run
+./bin/just dast-run target=https://example.com
 ./bin/just rust-run
 
 # Install / sync dependencies

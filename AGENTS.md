@@ -12,27 +12,36 @@ fetched and cached on first invocation.
 Use `./bin/just <recipe>` from the repo root. Run `./bin/just` (no args)
 to list all available recipes. See the `justfile` for the full list.
 
-### Language-specific notes
+### Workspace structure
 
-- **Python** — managed by `./bin/uv`. Run `./bin/just py-sync` to install
-  deps. The virtualenv lives at `py/.venv/`. Lint with ruff, test with pytest.
-- **TypeScript** — managed by `./bin/npm`. Run `./bin/just ts-install` to
-  install deps. Build produces `ts/dist/`. Lint with eslint.
-- **Go** — uses the dotslash-managed `./bin/go`. No extra install step needed.
-  Lint with `go vet`.
-- **Rust** — uses the system `cargo`/`rustc` installed via `rustup`. The
-  dotslash `bin/rustup-init` can bootstrap a fresh Rust toolchain if needed
-  (`./bin/rustup-init -y --no-modify-path`). Lint with clippy.
+Each language directory is its own workspace root — commands operate on
+the entire workspace, not a single project:
+
+- **`py/`** — uv workspace. Members live in `py/packages/*`. The workspace
+  root `py/pyproject.toml` defines shared dev deps (ruff, pytest) and
+  config. Run `./bin/just py-sync` to install, `py-test` to test all
+  packages, `py-lint` to lint all packages.
+- **`ts/`** — npm workspaces. Packages live in `ts/packages/*`. Root
+  `ts/package.json` defines shared devDependencies and forwards
+  build/lint/test to all workspace members. Run `./bin/just ts-install`.
+- **`go/`** — Go workspace via `go.work`. Each module is a direct
+  subdirectory (e.g. `go/hello-go/`). Add new modules with
+  `go work use ./new-module` from `go/`.
+- **`rust/`** — Cargo workspace. Crates live in `rust/crates/*`. The
+  workspace root `rust/Cargo.toml` has `members = ["crates/*"]`.
 
 ### Gotchas
 
-- Always invoke tools through `./bin/` wrappers (or via justfile recipes) to
-  use the pinned versions — do **not** rely on system-installed `node`, `go`,
-  `uv`, etc.
-- `bin/npm` and `bin/npx` are shell scripts (not dotslash files) that locate
-  the npm bundled inside the dotslash-managed Node.js extraction.
-- The Go dotslash file sets `GOROOT` implicitly (the Go binary finds its own
-  SDK in the extracted archive). If you need `GOROOT` explicitly, resolve the
-  real binary path: `$(./bin/go env GOROOT)`.
-- Rust lint uses `cargo clippy -- -D warnings` which treats all warnings as
-  errors.
+- Always invoke tools through `./bin/` wrappers (or via justfile recipes)
+  to use the pinned versions — do **not** rely on system-installed
+  `node`, `go`, `uv`, etc.
+- `bin/npm` and `bin/npx` are shell scripts (not dotslash files) that
+  locate the npm bundled inside the dotslash-managed Node.js extraction.
+- The Go dotslash file sets `GOROOT` implicitly (the Go binary finds its
+  own SDK in the extracted archive). If you need `GOROOT` explicitly:
+  `$(./bin/go env GOROOT)`.
+- Go workspace `./...` pattern does NOT work from the workspace root; the
+  justfile enumerates modules via `*/go.mod` glob. When adding a new Go
+  module, also run `cd go && ../bin/go work use ./new-module`.
+- Rust lint uses `cargo clippy --workspace -- -D warnings` (warnings are
+  errors).

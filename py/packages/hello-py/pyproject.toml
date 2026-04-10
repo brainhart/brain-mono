@@ -1,0 +1,13 @@
+[project]
+name = "hello-py"
+version = "0.1.0"
+description = "Example package in the Python workspace"
+requires-python = ">=3.13"
+dependencies = []
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project.scripts]
+hello-py = "hello_py:main"

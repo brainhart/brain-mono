@@ -1,10 +1,12 @@
 [project]
-name = "hello-py"
-version = "0.1.0"
-description = "Python workspace in the brain-mono monorepo"
-readme = "README.md"
+name = "py-workspace"
+version = "0.0.0"
+description = "Python workspace root — not published"
 requires-python = ">=3.13"
 dependencies = []
+
+[tool.uv.workspace]
+members = ["packages/*"]
 
 [dependency-groups]
 dev = ["ruff>=0.11", "pytest>=8"]
@@ -17,4 +19,4 @@ line-length = 100
 select = ["E", "F", "I", "N", "W", "UP"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["packages/*/tests"]

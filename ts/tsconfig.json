@@ -3,13 +3,15 @@
     "target": "ES2024",
     "module": "Node16",
     "moduleResolution": "Node16",
-    "outDir": "dist",
-    "rootDir": "src",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "declaration": true,
-    "sourceMap": true
+    "sourceMap": true,
+    "composite": true
   },
-  "include": ["src"]
+  "references": [
+    { "path": "packages/hello-ts" }
+  ],
+  "files": []
 }

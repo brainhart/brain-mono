@@ -1,15 +1,14 @@
 {
-  "name": "hello-ts",
-  "version": "0.1.0",
-  "description": "TypeScript workspace in the brain-mono monorepo",
+  "name": "ts-workspace",
+  "version": "0.0.0",
   "private": true,
   "type": "module",
+  "description": "TypeScript workspace root",
+  "workspaces": ["packages/*"],
   "scripts": {
-    "build": "tsc",
-    "start": "node dist/main.js",
-    "dev": "tsc --watch",
-    "lint": "eslint src/",
-    "test": "node --test dist/main.test.js"
+    "build": "npm run build --workspaces",
+    "lint": "npm run lint --workspaces",
+    "test": "npm run test --workspaces"
   },
   "devDependencies": {
     "typescript": "^5.8",

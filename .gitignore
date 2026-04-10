@@ -1,15 +1,14 @@
 # Python
 py/.venv/
-py/__pycache__/
-py/tests/__pycache__/
+**/__pycache__/
 *.pyc
 
 # TypeScript / Node
 ts/node_modules/
-ts/dist/
+ts/packages/*/dist/
 
 # Go
-go/hello-go
+go/bin/
 
 # Rust
 rust/target/

@@ -45,3 +45,7 @@ the entire workspace, not a single project:
   module, also run `cd go && ../bin/go work use ./new-module`.
 - Rust lint uses `cargo clippy --workspace -- -D warnings` (warnings are
   errors).
+- TypeScript tests require a build first (`ts-test` depends on `ts-build`).
+  If `tsc -b` produces no output despite no errors, delete stale
+  `tsconfig.tsbuildinfo` files and rebuild:
+  `rm -f ts/packages/*/tsconfig.tsbuildinfo && ./bin/just ts-build`.

@@ -116,10 +116,10 @@ function makeState(): JobState {
 			["review", { stageId: "review", status: "waiting", attemptCount: 0 }],
 		]),
 		tasks: new Map([
-			["plan-t1", { taskId: "plan-t1", stageId: "plan", status: "completed", attemptCount: 1, result: { status: "success", summary: "Plan created" }, startedAt: now - 5000, completedAt: now - 3000, progressLines: [], progressEntries: [], attempts: [{ taskAttemptId: "plan-t1:a1", attemptNumber: 1, startedAt: now - 5000, finishedAt: now - 3000, result: { status: "success", summary: "Plan created" } }] }],
-			["impl-t1", { taskId: "impl-t1", stageId: "impl", status: "completed", attemptCount: 1, result: { status: "success", summary: "Auth done" }, startedAt: now - 3000, completedAt: now - 1000, progressLines: [], progressEntries: [], attempts: [{ taskAttemptId: "impl-t1:a1", attemptNumber: 1, startedAt: now - 3000, finishedAt: now - 1000, result: { status: "success", summary: "Auth done" } }] }],
-			["impl-t2", { taskId: "impl-t2", stageId: "impl", status: "running", attemptCount: 1, startedAt: now - 2000, progressLines: ["Analyzing codebase…", "⚡ read({path: \"src/api.ts\"})"], progressEntries: [{ kind: "text", text: "Analyzing codebase…" }, { kind: "tool_call", toolName: "read", toolArgs: { path: "src/api.ts" } }], attempts: [{ taskAttemptId: "impl-t2:a1", attemptNumber: 1, startedAt: now - 2000 }] }],
-			["impl-t3", { taskId: "impl-t3", stageId: "impl", status: "failed", attemptCount: 2, error: "DB connection error", result: { status: "failure", summary: "DB connection error" }, startedAt: now - 2500, completedAt: now - 500, progressLines: [], progressEntries: [], attempts: [{ taskAttemptId: "impl-t3:a1", attemptNumber: 1, startedAt: now - 2500, finishedAt: now - 1500, error: "timeout" }, { taskAttemptId: "impl-t3:a2", attemptNumber: 2, startedAt: now - 1500, finishedAt: now - 500, error: "DB connection error" }] }],
+			["plan-t1", { taskId: "plan-t1", stageId: "plan", status: "completed", attemptCount: 1, result: { status: "success", summary: "Plan created" }, startedAt: now - 5000, completedAt: now - 3000, progressLines: [], progressEntries: [], operatorNotes: [], attempts: [{ taskAttemptId: "plan-t1:a1", attemptNumber: 1, startedAt: now - 5000, finishedAt: now - 3000, result: { status: "success", summary: "Plan created" } }] }],
+			["impl-t1", { taskId: "impl-t1", stageId: "impl", status: "completed", attemptCount: 1, result: { status: "success", summary: "Auth done" }, startedAt: now - 3000, completedAt: now - 1000, progressLines: [], progressEntries: [], operatorNotes: [], attempts: [{ taskAttemptId: "impl-t1:a1", attemptNumber: 1, startedAt: now - 3000, finishedAt: now - 1000, result: { status: "success", summary: "Auth done" } }] }],
+			["impl-t2", { taskId: "impl-t2", stageId: "impl", status: "running", attemptCount: 1, startedAt: now - 2000, progressLines: ["Analyzing codebase…", "⚡ read({path: \"src/api.ts\"})"], progressEntries: [{ kind: "text", text: "Analyzing codebase…" }, { kind: "tool_call", toolName: "read", toolArgs: { path: "src/api.ts" } }], operatorNotes: [{ note: "Prefer the existing API client abstraction.", action: "note", timestamp: now - 1200 }], attempts: [{ taskAttemptId: "impl-t2:a1", attemptNumber: 1, startedAt: now - 2000 }] }],
+			["impl-t3", { taskId: "impl-t3", stageId: "impl", status: "failed", attemptCount: 2, error: "DB connection error", result: { status: "failure", summary: "DB connection error" }, startedAt: now - 2500, completedAt: now - 500, progressLines: [], progressEntries: [], operatorNotes: [], attempts: [{ taskAttemptId: "impl-t3:a1", attemptNumber: 1, startedAt: now - 2500, finishedAt: now - 1500, error: "timeout" }, { taskAttemptId: "impl-t3:a2", attemptNumber: 2, startedAt: now - 1500, finishedAt: now - 500, error: "DB connection error" }] }],
 		]),
 		stageResults: new Map(),
 		transitions: [],
@@ -241,6 +241,8 @@ describe("TaskView", () => {
 		const plain = stripAnsi(output);
 		assert.ok(plain.includes("running"), "should show running status");
 		assert.ok(plain.includes("Live output"), "should show streaming progress");
+		assert.ok(plain.includes("Operator notes"), "should show operator notes section");
+		assert.ok(plain.includes("Prefer the existing API client abstraction."), "should render note content");
 	});
 
 	it("emits back on escape", () => {
@@ -250,6 +252,17 @@ describe("TaskView", () => {
 		view.onAction = (a) => actions.push(a.type);
 		view.handleInput("\x1b"); // escape
 		assert.deepEqual(actions, ["back"]);
+	});
+
+	it("opens task actions on alt-a", () => {
+		const def = makeDefinition();
+		const taskDef = def.stages[1].tasks[1];
+		const view = new TaskView("impl-t2", taskDef);
+		view.setState(makeState());
+		const actions: string[] = [];
+		view.onAction = (a) => actions.push(a.type);
+		view.handleInput("\x1ba");
+		assert.deepEqual(actions, ["open_actions"]);
 	});
 });
 
@@ -261,6 +274,7 @@ describe("HelpView", () => {
 		assert.ok(plain.includes("Keybindings"), "should have title");
 		assert.ok(plain.includes("/ l"), "should list enter/l key");
 		assert.ok(plain.includes("Drill into"), "should describe drill action");
+		assert.ok(plain.includes("Alt-a"), "should show task actions shortcut");
 	});
 
 	it("emits close on escape", () => {

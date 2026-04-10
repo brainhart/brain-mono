@@ -8,6 +8,7 @@ import type {
 	StageId,
 	StreamingTaskExecutor,
 	TaskResult,
+	TaskOperatorAction,
 } from "./types.js";
 import { MutableDAG } from "./dag.js";
 import { EventLog } from "./event-log.js";
@@ -111,6 +112,19 @@ export class JobRunner {
 	 */
 	cancelTask(taskId: string, stageId: StageId): void {
 		this.scheduler?.send({ type: "cancel_task", taskId, stageId });
+	}
+
+	addTaskOperatorNote(
+		taskId: string,
+		stageId: StageId,
+		note: string,
+		action: TaskOperatorAction = "note",
+	): void {
+		this.scheduler?.send({ type: "task_operator_note", taskId, stageId, note, action });
+	}
+
+	retryTaskWithNote(taskId: string, stageId: StageId, note: string): void {
+		this.scheduler?.send({ type: "retry_task_with_note", taskId, stageId, note });
 	}
 
 	getJobStatus(): JobStatus {

@@ -9,6 +9,7 @@ import type {
 	TaskResult,
 	TaskProgress,
 	StageAttemptId,
+	TaskOperatorNote,
 } from "./types.js";
 
 export type TaskAttemptRecord = {
@@ -46,6 +47,7 @@ export type TaskState = {
 	progressLines: string[];
 	/** Raw structured progress entries for rich rendering. */
 	progressEntries: TaskProgress[];
+	operatorNotes: TaskOperatorNote[];
 };
 
 export type TransitionRecord = {
@@ -237,6 +239,7 @@ export function projectState(events: readonly RuntimeEvent[]): JobState {
 						attempts: [attemptRec],
 						progressLines: [],
 						progressEntries: [],
+						operatorNotes: [],
 					});
 				}
 				break;
@@ -293,6 +296,18 @@ export function projectState(events: readonly RuntimeEvent[]): JobState {
 					tokenUsage.inputTokens += inp;
 					tokenUsage.outputTokens += out;
 					tokenUsage.totalTokens += tot;
+				}
+				break;
+			}
+
+			case "task_operator_note": {
+				const ts = tasks.get(event.taskId);
+				if (ts) {
+					ts.operatorNotes.push({
+						note: event.note,
+						action: event.action,
+						timestamp: event.timestamp,
+					});
 				}
 				break;
 			}

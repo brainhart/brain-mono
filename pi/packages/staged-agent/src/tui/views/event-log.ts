@@ -129,6 +129,10 @@ export class EventLogView implements Component {
 				const text = p.text ? truncateToWidth(p.text, maxWidth - 30) : (p.toolName ?? "");
 				return colored("progress", FG_GRAY, DIM) + ` ${event.taskId} ${kind} ${text}`;
 			}
+			case "task_operator_note":
+				return colored("task_note", FG_YELLOW)
+					+ colored(` ${event.taskId}`, FG_WHITE)
+					+ colored(` [${event.action}] "${truncateToWidth(event.note, maxWidth - 28)}"`, FG_GRAY);
 			case "session_attached":
 				return colored("session", FG_GRAY) + colored(` ${event.sessionId} → ${event.taskAttemptId}`, FG_GRAY, DIM);
 			case "transition_evaluated": {

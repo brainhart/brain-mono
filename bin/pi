@@ -1,0 +1,56 @@
+#!/usr/bin/env dotslash
+
+// pi v0.66.1 — https://github.com/badlogic/pi-mono
+{
+  "name": "pi",
+  "platforms": {
+    "linux-x86_64": {
+      "size": 44798273,
+      "hash": "blake3",
+      "digest": "79e05c4764a3630bbde7a428f4ed987f89447819a6469c046ef9cee657081ba9",
+      "format": "tar.gz",
+      "path": "pi/pi",
+      "providers": [
+        {
+          "url": "https://github.com/badlogic/pi-mono/releases/download/v0.66.1/pi-linux-x64.tar.gz"
+        }
+      ]
+    },
+    "linux-aarch64": {
+      "size": 43355289,
+      "hash": "blake3",
+      "digest": "56c907cbbc6833cc4a7f5c775f2d3b53af7bcde5ec874e7f27134b0e71ec2e7f",
+      "format": "tar.gz",
+      "path": "pi/pi",
+      "providers": [
+        {
+          "url": "https://github.com/badlogic/pi-mono/releases/download/v0.66.1/pi-linux-arm64.tar.gz"
+        }
+      ]
+    },
+    "macos-x86_64": {
+      "size": 30259456,
+      "hash": "blake3",
+      "digest": "b88d6ddcca9346228ecce3f625ce7c8f46203b12487af0b8989281daf05f9bcb",
+      "format": "tar.gz",
+      "path": "pi/pi",
+      "providers": [
+        {
+          "url": "https://github.com/badlogic/pi-mono/releases/download/v0.66.1/pi-darwin-x64.tar.gz"
+        }
+      ]
+    },
+    "macos-aarch64": {
+      "size": 27809974,
+      "hash": "blake3",
+      "digest": "cf7e7310710c80766e9f603bfca28fe05c665bcc155dbaf0eea0b3818d3fd033",
+      "format": "tar.gz",
+      "path": "pi/pi",
+      "providers": [
+        {
+          "url": "https://github.com/badlogic/pi-mono/releases/download/v0.66.1/pi-darwin-arm64.tar.gz"
+        }
+      ]
+    }
+  }
+}

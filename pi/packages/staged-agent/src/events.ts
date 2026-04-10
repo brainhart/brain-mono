@@ -6,6 +6,7 @@ import type {
 	TaskAttemptId,
 	SessionId,
 	TaskResult,
+	TaskProgress,
 } from "./types.js";
 
 type BaseEvent = {
@@ -31,10 +32,12 @@ export type JobFailedEvent = BaseEvent & {
 
 export type JobPausedEvent = BaseEvent & {
 	type: "job_paused";
+	reason?: string;
 };
 
 export type JobResumedEvent = BaseEvent & {
 	type: "job_resumed";
+	input?: string;
 };
 
 export type StageSubmittedEvent = BaseEvent & {
@@ -103,6 +106,14 @@ export type TaskFailedEvent = BaseEvent & {
 	error: string;
 };
 
+export type TaskProgressEvent = BaseEvent & {
+	type: "task_progress";
+	stageId: StageId;
+	taskId: TaskId;
+	taskAttemptId: TaskAttemptId;
+	progress: TaskProgress;
+};
+
 export type SessionAttachedEvent = BaseEvent & {
 	type: "session_attached";
 	taskAttemptId: TaskAttemptId;
@@ -133,5 +144,6 @@ export type RuntimeEvent =
 	| TaskStartedEvent
 	| TaskCompletedEvent
 	| TaskFailedEvent
+	| TaskProgressEvent
 	| SessionAttachedEvent
 	| TransitionEvaluatedEvent;

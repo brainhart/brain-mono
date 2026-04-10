@@ -5,7 +5,7 @@ import type {
 	StageAttemptId,
 	TaskResult,
 	JobId,
-	TaskExecutor,
+	StreamingTaskExecutor,
 	JobStatus,
 	JobSnapshot,
 	StageInfo,
@@ -31,8 +31,10 @@ export type DAGSchedulerActorMsg =
 			error: string;
 			results: TaskResult[];
 	  }
-	| { type: "resume" }
-	| { type: "cancel" };
+	| { type: "pause"; reason?: string }
+	| { type: "resume"; input?: string }
+	| { type: "cancel" }
+	| { type: "cancel_task"; taskId: string; stageId: StageId };
 
 /**
  * Central orchestrator actor.
@@ -60,7 +62,7 @@ export class DAGSchedulerActor extends Actor<DAGSchedulerActorMsg> {
 	constructor(
 		private readonly jobId: JobId,
 		private readonly dag: MutableDAG,
-		private readonly executor: TaskExecutor,
+		private readonly executor: StreamingTaskExecutor,
 		private readonly pool: ActorRef<SessionPoolMsg>,
 		private readonly log: EventLog,
 	) {
@@ -90,11 +92,17 @@ export class DAGSchedulerActor extends Actor<DAGSchedulerActorMsg> {
 					msg.results,
 				);
 				break;
+			case "pause":
+				this.onPause(msg.reason);
+				break;
 			case "resume":
-				this.onResume();
+				this.onResume(msg.input);
 				break;
 			case "cancel":
 				this.onCancel();
+				break;
+			case "cancel_task":
+				this.onCancelTask(msg.taskId, msg.stageId);
 				break;
 		}
 	}
@@ -147,7 +155,20 @@ export class DAGSchedulerActor extends Actor<DAGSchedulerActorMsg> {
 	}
 
 	private submitStage(stageId: StageId): void {
-		const stageDef = this.dag.getStage(stageId)!;
+		const stageDef = this.dag.getStage(stageId);
+		if (!stageDef) {
+			this.log.append({
+				type: "stage_failed",
+				jobId: this.jobId,
+				stageId,
+				error: `Stage "${stageId}" not found in DAG`,
+				timestamp: Date.now(),
+			});
+			this.runningStages.delete(stageId);
+			this.failedStages.add(stageId);
+			this.checkTermination();
+			return;
+		}
 		const attemptNum =
 			(this.stageAttemptCounters.get(stageId) ?? 0) + 1;
 		this.stageAttemptCounters.set(stageId, attemptNum);
@@ -256,8 +277,8 @@ export class DAGSchedulerActor extends Actor<DAGSchedulerActorMsg> {
 			timestamp: Date.now(),
 		});
 
-		const stageDef = this.dag.getStage(stageId)!;
-		const maxAttempts = stageDef.maxStageAttempts ?? 1;
+		const stageDef = this.dag.getStage(stageId);
+		const maxAttempts = stageDef?.maxStageAttempts ?? 1;
 		const currentAttempts =
 			this.stageAttemptCounters.get(stageId) ?? 1;
 
@@ -313,7 +334,7 @@ export class DAGSchedulerActor extends Actor<DAGSchedulerActorMsg> {
 					});
 				}
 
-				const shouldPause = this.dag.consumePauseRequest();
+				const pauseReq = this.dag.consumePauseRequest();
 
 				this.log.append({
 					type: "transition_evaluated",
@@ -325,12 +346,13 @@ export class DAGSchedulerActor extends Actor<DAGSchedulerActorMsg> {
 					timestamp: Date.now(),
 				});
 
-				if (shouldPause) {
+				if (pauseReq.paused) {
 					this.paused = true;
 					this.jobStatus = "paused";
 					this.log.append({
 						type: "job_paused",
 						jobId: this.jobId,
+						reason: pauseReq.reason,
 						timestamp: Date.now(),
 					});
 				}
@@ -338,16 +360,36 @@ export class DAGSchedulerActor extends Actor<DAGSchedulerActorMsg> {
 		}
 	}
 
-	private onResume(): void {
+	private onPause(reason?: string): void {
+		if (this.paused || this.terminated) return;
+		this.paused = true;
+		this.jobStatus = "paused";
+		this.log.append({
+			type: "job_paused",
+			jobId: this.jobId,
+			reason,
+			timestamp: Date.now(),
+		});
+	}
+
+	private onResume(input?: string): void {
 		if (!this.paused) return;
 		this.paused = false;
 		this.jobStatus = "running";
 		this.log.append({
 			type: "job_resumed",
 			jobId: this.jobId,
+			input,
 			timestamp: Date.now(),
 		});
 		this.scheduleReady();
+	}
+
+	private onCancelTask(taskId: string, stageId: StageId): void {
+		const actor = this.activeStageActors.get(stageId);
+		if (actor) {
+			actor.send({ type: "cancel_task", taskId });
+		}
 	}
 
 	private failDependents(rootStageId: StageId): void {

@@ -6,7 +6,7 @@ import type {
 	JobStatus,
 	JobSnapshot,
 	StageId,
-	TaskExecutor,
+	StreamingTaskExecutor,
 	TaskResult,
 } from "./types.js";
 import { MutableDAG } from "./dag.js";
@@ -37,7 +37,7 @@ export class JobRunner {
 
 	constructor(
 		private readonly definition: JobDefinition,
-		private readonly executor: TaskExecutor,
+		private readonly executor: StreamingTaskExecutor,
 		opts?: JobRunnerOpts,
 	) {
 		this.jobId = definition.id ?? randomUUID();
@@ -85,16 +85,32 @@ export class JobRunner {
 		}
 	}
 
+	/**
+	 * Pause the job. Running tasks continue to completion but no new
+	 * stages will be scheduled until `resume()` is called.
+	 */
+	pause(reason?: string): void {
+		this.scheduler?.send({ type: "pause", reason });
+	}
+
 	cancel(): void {
 		this.scheduler?.send({ type: "cancel" });
 	}
 
 	/**
-	 * Resume a paused job. The scheduler will continue scheduling
-	 * waiting stages.
+	 * Resume a paused job, optionally with human input.
+	 * The input is logged and can be consumed by subsequent transitions.
 	 */
-	resume(): void {
-		this.scheduler?.send({ type: "resume" });
+	resume(input?: string): void {
+		this.scheduler?.send({ type: "resume", input });
+	}
+
+	/**
+	 * Cancel a single running task. The task's retry policy still applies
+	 * — cancellation counts as a failed attempt.
+	 */
+	cancelTask(taskId: string, stageId: StageId): void {
+		this.scheduler?.send({ type: "cancel_task", taskId, stageId });
 	}
 
 	getJobStatus(): JobStatus {
@@ -112,18 +128,19 @@ export class JobRunner {
 	/**
 	 * Recover a job from a previously-written event log.
 	 *
-	 * Replays the log to rebuild `JobState`, then returns the projected
-	 * state so the caller can inspect where the job left off.
+	 * Replays the log to rebuild `JobState`, then filters the definition
+	 * to only include stages that haven't completed yet. The returned
+	 * runner operates on this reduced DAG — completed stages are excluded
+	 * from the definition entirely, not skipped at runtime.
 	 *
-	 * If the job was still running when the process crashed, the caller
-	 * can construct a new `JobRunner` and re-run — completed stages won't
-	 * re-execute because the DAGScheduler will see them in the event log
-	 * and skip them.
+	 * Note: `JobResult.stageResults` from the resumed run will only
+	 * contain results for stages executed in this run, not prior ones.
+	 * Use `projectState()` on the full event log for a complete picture.
 	 */
 	static recover(
 		eventLogPath: string,
 		definition: JobDefinition,
-		executor: TaskExecutor,
+		executor: StreamingTaskExecutor,
 	): RecoveredJob {
 		const events = EventLog.replay(eventLogPath);
 		const state = projectState(events);

@@ -128,10 +128,10 @@ describe("MutableDAG", () => {
 
 	it("pause queues a pause request", () => {
 		const dag = new MutableDAG();
-		assert.equal(dag.consumePauseRequest(), false);
-		dag.pause();
-		assert.equal(dag.consumePauseRequest(), true);
-		assert.equal(dag.consumePauseRequest(), false);
+		assert.deepEqual(dag.consumePauseRequest(), { paused: false, reason: undefined });
+		dag.pause("awaiting human review");
+		assert.deepEqual(dag.consumePauseRequest(), { paused: true, reason: "awaiting human review" });
+		assert.deepEqual(dag.consumePauseRequest(), { paused: false, reason: undefined });
 	});
 
 	it("rejects self-loops", () => {

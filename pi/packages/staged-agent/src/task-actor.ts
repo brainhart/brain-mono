@@ -1,10 +1,10 @@
 import { Actor, Deferred, type ActorRef, type TimerHandle } from "./actor.js";
 import type {
 	TaskDefinition,
-	TaskExecutor,
 	TaskAttemptId,
 	SessionId,
 	StageId,
+	StreamingTaskExecutor,
 } from "./types.js";
 import type { StageActorMsg } from "./stage-actor.js";
 import type { SessionPoolMsg } from "./session-pool-actor.js";
@@ -53,12 +53,18 @@ export class TaskActor extends Actor<TaskActorMsg> {
 	constructor(
 		private readonly task: TaskDefinition,
 		private readonly opts: TaskActorOpts,
-		private readonly executor: TaskExecutor,
+		private readonly executor: StreamingTaskExecutor,
 		private readonly pool: ActorRef<SessionPoolMsg>,
 		private readonly parent: ActorRef<StageActorMsg>,
 		private readonly log: EventLog,
 	) {
 		super();
+	}
+
+	protected override onDeadLetter(msg: TaskActorMsg): void {
+		if (msg.type === "session_acquired") {
+			this.pool.send({ type: "release", sessionId: msg.sessionId });
+		}
 	}
 
 	protected handle(msg: TaskActorMsg): void {
@@ -150,7 +156,21 @@ export class TaskActor extends Actor<TaskActorMsg> {
 
 		this.abortController = new AbortController();
 		const self = this.ref();
-		this.executor(this.task, sessionId, this.abortController.signal).then(
+
+		const onProgress = (progress: import("./types.js").TaskProgress) => {
+			if (this.phase !== "executing") return;
+			this.log.append({
+				type: "task_progress",
+				jobId: this.opts.jobId,
+				stageId: this.opts.stageId,
+				taskId: this.opts.taskId,
+				taskAttemptId: this.opts.taskAttemptId,
+				progress,
+				timestamp: Date.now(),
+			});
+		};
+
+		this.executor(this.task, sessionId, this.abortController.signal, onProgress).then(
 			(result) => self.send({ type: "execute_completed", result }),
 			(err) =>
 				self.send({
@@ -265,6 +285,19 @@ export class TaskActor extends Actor<TaskActorMsg> {
 
 	private fail(error: string): void {
 		this.abortController?.abort();
+
+		if (this.phase !== "idle") {
+			this.log.append({
+				type: "task_failed",
+				jobId: this.opts.jobId,
+				stageId: this.opts.stageId,
+				taskId: this.opts.taskId,
+				taskAttemptId: this.opts.taskAttemptId,
+				error,
+				timestamp: Date.now(),
+			});
+		}
+
 		this.parent.send({
 			type: "task_failed",
 			taskId: this.opts.taskId,

@@ -19,6 +19,7 @@ export type StageState = {
 
 export type TaskState = {
 	taskId: TaskId;
+	stageId?: StageId;
 	status: TaskStatus;
 	attemptCount: number;
 	result?: TaskResult;
@@ -34,6 +35,10 @@ export type JobState = {
 
 /**
  * Deterministic left-fold over the event log to rebuild in-memory state.
+ *
+ * Handles dynamically-added stages (via `transition_evaluated`),
+ * stage resets (via `stage_reset`), pause/resume, and populates
+ * `stageResults` from `task_completed` events.
  */
 export function projectState(events: readonly RuntimeEvent[]): JobState {
 	let jobId = "";
@@ -69,6 +74,10 @@ export function projectState(events: readonly RuntimeEvent[]): JobState {
 				status = "paused";
 				break;
 
+			case "job_resumed":
+				status = "running";
+				break;
+
 			case "stage_submitted": {
 				const ss = stages.get(event.stageId);
 				if (ss) ss.status = "running";
@@ -87,6 +96,14 @@ export function projectState(events: readonly RuntimeEvent[]): JobState {
 				break;
 			}
 
+			case "stage_reset": {
+				const ss = stages.get(event.stageId);
+				if (ss) {
+					ss.status = "waiting";
+				}
+				break;
+			}
+
 			case "stage_attempt_started": {
 				const ss = stages.get(event.stageId);
 				if (ss) {
@@ -96,14 +113,29 @@ export function projectState(events: readonly RuntimeEvent[]): JobState {
 				break;
 			}
 
+			case "transition_evaluated": {
+				for (const sid of event.addedStages) {
+					if (!stages.has(sid)) {
+						stages.set(sid, {
+							stageId: sid,
+							status: "waiting",
+							attemptCount: 0,
+						});
+					}
+				}
+				break;
+			}
+
 			case "task_started": {
-				const ts = tasks.get(event.taskId);
-				if (ts) {
-					ts.status = "running";
-					ts.attemptCount = event.attemptNumber;
+				const existing = tasks.get(event.taskId);
+				if (existing) {
+					existing.status = "running";
+					existing.attemptCount = event.attemptNumber;
+					existing.stageId = event.stageId;
 				} else {
 					tasks.set(event.taskId, {
 						taskId: event.taskId,
+						stageId: event.stageId,
 						status: "running",
 						attemptCount: event.attemptNumber,
 					});
@@ -117,6 +149,12 @@ export function projectState(events: readonly RuntimeEvent[]): JobState {
 					ts.status = "completed";
 					ts.result = event.result;
 				}
+
+				const sid = event.stageId;
+				if (!stageResults.has(sid)) {
+					stageResults.set(sid, []);
+				}
+				stageResults.get(sid)!.push(event.result);
 				break;
 			}
 

@@ -1,10 +1,10 @@
 import { Actor, Deferred, type ActorRef } from "./actor.js";
 import type {
 	TaskDefinition,
-	TaskResult,
 	TaskExecutor,
 	TaskAttemptId,
 	SessionId,
+	StageId,
 } from "./types.js";
 import type { StageActorMsg } from "./stage-actor.js";
 import type { SessionPoolMsg } from "./session-pool-actor.js";
@@ -16,6 +16,7 @@ export type TaskActorMsg =
 
 export type TaskActorOpts = {
 	jobId: string;
+	stageId: StageId;
 	stageAttemptId: string;
 	taskId: string;
 	attemptNumber: number;
@@ -86,6 +87,7 @@ export class TaskActor extends Actor<TaskActorMsg> {
 		this.log.append({
 			type: "task_started",
 			jobId: this.opts.jobId,
+			stageId: this.opts.stageId,
 			taskId: this.opts.taskId,
 			taskAttemptId: this.opts.taskAttemptId,
 			stageAttemptId: this.opts.stageAttemptId,
@@ -99,6 +101,7 @@ export class TaskActor extends Actor<TaskActorMsg> {
 			this.log.append({
 				type: "task_completed",
 				jobId: this.opts.jobId,
+				stageId: this.opts.stageId,
 				taskId: this.opts.taskId,
 				taskAttemptId: this.opts.taskAttemptId,
 				result,
@@ -117,6 +120,7 @@ export class TaskActor extends Actor<TaskActorMsg> {
 			this.log.append({
 				type: "task_failed",
 				jobId: this.opts.jobId,
+				stageId: this.opts.stageId,
 				taskId: this.opts.taskId,
 				taskAttemptId: this.opts.taskAttemptId,
 				error,

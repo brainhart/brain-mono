@@ -13,6 +13,9 @@ export class MutableDAG implements DAGMutator {
 	private readonly parentsOf = new Map<StageId, StageId[]>();
 	private readonly edgeMap = new Map<string, StageDependency>();
 
+	private _pauseRequested = false;
+	private readonly _resetRequested = new Set<StageId>();
+
 	addStage(stage: StageDefinition): void {
 		if (this.stages.has(stage.id)) {
 			throw new Error(`Stage "${stage.id}" already exists`);
@@ -46,6 +49,29 @@ export class MutableDAG implements DAGMutator {
 		this.childrenOf.get(parentId)!.push(childId);
 		this.parentsOf.get(childId)!.push(parentId);
 		this.edgeMap.set(key, dep);
+	}
+
+	resetStage(stageId: StageId): void {
+		if (!this.stages.has(stageId)) {
+			throw new Error(`Stage "${stageId}" not in DAG`);
+		}
+		this._resetRequested.add(stageId);
+	}
+
+	pause(): void {
+		this._pauseRequested = true;
+	}
+
+	consumePauseRequest(): boolean {
+		const v = this._pauseRequested;
+		this._pauseRequested = false;
+		return v;
+	}
+
+	consumeResetRequests(): StageId[] {
+		const ids = [...this._resetRequested];
+		this._resetRequested.clear();
+		return ids;
 	}
 
 	getStage(id: StageId): StageDefinition | undefined {

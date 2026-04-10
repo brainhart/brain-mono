@@ -111,4 +111,26 @@ describe("MutableDAG", () => {
 		const dep = dag.getDependency("a", "b");
 		assert.equal(dep?.transition, fn);
 	});
+
+	it("resetStage queues a reset request", () => {
+		const dag = new MutableDAG();
+		dag.addStage(makeStage("a"));
+		dag.resetStage("a");
+		const resets = dag.consumeResetRequests();
+		assert.deepEqual(resets, ["a"]);
+		assert.deepEqual(dag.consumeResetRequests(), []);
+	});
+
+	it("resetStage throws for unknown stage", () => {
+		const dag = new MutableDAG();
+		assert.throws(() => dag.resetStage("missing"), /not in DAG/);
+	});
+
+	it("pause queues a pause request", () => {
+		const dag = new MutableDAG();
+		assert.equal(dag.consumePauseRequest(), false);
+		dag.pause();
+		assert.equal(dag.consumePauseRequest(), true);
+		assert.equal(dag.consumePauseRequest(), false);
+	});
 });

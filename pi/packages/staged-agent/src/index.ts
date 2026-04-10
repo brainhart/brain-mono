@@ -7,6 +7,7 @@ export type {
 	SessionId,
 	TaskResult,
 	TaskDefinition,
+	TaskSet,
 	CompletionPolicy,
 	TransitionFn,
 	StageDefinition,
@@ -18,6 +19,8 @@ export type {
 	JobResult,
 	TaskExecutor,
 	DAGMutator,
+	StageInfo,
+	JobSnapshot,
 } from "./types.js";
 
 export type { RuntimeEvent } from "./events.js";
@@ -29,5 +32,5 @@ export { SessionPoolActor, type SessionPoolMsg } from "./session-pool-actor.js";
 export { TaskActor, type TaskActorMsg, type TaskActorOpts } from "./task-actor.js";
 export { StageActor, type StageActorMsg } from "./stage-actor.js";
 export { DAGSchedulerActor, type DAGSchedulerActorMsg } from "./dag-scheduler-actor.js";
-export { JobRunner, type JobRunnerOpts } from "./job-runner.js";
+export { JobRunner, type JobRunnerOpts, type RecoveredJob } from "./job-runner.js";
 export { projectState, type StageState, type TaskState, type JobState } from "./state.js";

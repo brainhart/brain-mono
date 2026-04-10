@@ -108,6 +108,7 @@ export class StageActor extends Actor<StageActorMsg> {
 			slot.task,
 			{
 				jobId: this.jobId,
+				stageId: this.stageId,
 				stageAttemptId: this.stageAttemptId,
 				taskId: slot.task.id,
 				attemptNumber: slot.attemptCount,

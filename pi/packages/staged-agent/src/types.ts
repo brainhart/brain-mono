@@ -26,6 +26,15 @@ export type CompletionPolicy =
 	| { type: "first_success" }
 	| { type: "predicate"; fn: (results: TaskResult[]) => boolean };
 
+/**
+ * The batch of tasks for a single stage attempt (Spark's TaskSet).
+ */
+export type TaskSet = {
+	stageId: StageId;
+	stageAttemptId: StageAttemptId;
+	tasks: TaskDefinition[];
+};
+
 export interface DAGMutator {
 	addStage(stage: StageDefinition): void;
 	addDependency(
@@ -35,6 +44,16 @@ export interface DAGMutator {
 	): void;
 	getStage(id: StageId): StageDefinition | undefined;
 	getStageIds(): StageId[];
+	/**
+	 * Move a completed stage back to waiting so it can be re-executed.
+	 * Used for review loops: `implement → review → [transition] → remediate → review`.
+	 */
+	resetStage(stageId: StageId): void;
+	/**
+	 * Signal that the job should pause pending external input.
+	 * The scheduler will stop scheduling new stages.
+	 */
+	pause(): void;
 }
 
 export type TransitionFn = (
@@ -88,3 +107,23 @@ export type TaskExecutor = (
 	task: TaskDefinition,
 	sessionId: SessionId,
 ) => Promise<TaskResult>;
+
+/**
+ * Snapshot of the scheduler's view of a stage at a point in time.
+ */
+export type StageInfo = {
+	stageId: StageId;
+	status: StageStatus;
+	attemptCount: number;
+	results?: TaskResult[];
+};
+
+/**
+ * Snapshot of a running or completed job.
+ */
+export type JobSnapshot = {
+	jobId: JobId;
+	status: JobStatus;
+	stages: StageInfo[];
+	stageResults: Map<StageId, TaskResult[]>;
+};

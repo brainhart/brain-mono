@@ -4,9 +4,12 @@ import type {
 	StageId,
 	StageAttemptId,
 	TaskResult,
-	StageDefinition,
 	JobId,
 	TaskExecutor,
+	JobStatus,
+	JobSnapshot,
+	StageInfo,
+	StageStatus,
 } from "./types.js";
 import type { EventLog } from "./event-log.js";
 import { MutableDAG } from "./dag.js";
@@ -28,15 +31,16 @@ export type DAGSchedulerActorMsg =
 			error: string;
 			results: TaskResult[];
 	  }
+	| { type: "resume" }
 	| { type: "cancel" };
 
 /**
  * Central orchestrator actor.
  *
  * Maintains the stage DAG, submits stages in dependency order, evaluates
- * transition functions, and handles stage-level retries. All state
- * mutations happen inside the serialised message handler — no reentrancy
- * is possible.
+ * transition functions, handles stage-level retries, pause/resume, and
+ * stage re-entry for review loops. All state mutations happen inside the
+ * serialised message handler.
  */
 export class DAGSchedulerActor extends Actor<DAGSchedulerActorMsg> {
 	private readonly waitingStages = new Set<StageId>();
@@ -49,6 +53,8 @@ export class DAGSchedulerActor extends Actor<DAGSchedulerActorMsg> {
 	private readonly activeStageActors = new Map<StageId, StageActor>();
 
 	private terminated = false;
+	private paused = false;
+	private jobStatus: JobStatus = "pending";
 	readonly completion: Deferred<Map<StageId, TaskResult[]>>;
 
 	constructor(
@@ -84,6 +90,9 @@ export class DAGSchedulerActor extends Actor<DAGSchedulerActorMsg> {
 					msg.results,
 				);
 				break;
+			case "resume":
+				this.onResume();
+				break;
 			case "cancel":
 				this.onCancel();
 				break;
@@ -91,6 +100,7 @@ export class DAGSchedulerActor extends Actor<DAGSchedulerActorMsg> {
 	}
 
 	private onStart(): void {
+		this.jobStatus = "running";
 		for (const sid of this.dag.getStageIds()) {
 			this.waitingStages.add(sid);
 		}
@@ -106,6 +116,8 @@ export class DAGSchedulerActor extends Actor<DAGSchedulerActorMsg> {
 	}
 
 	private scheduleReady(): void {
+		if (this.paused) return;
+
 		const ready: StageId[] = [];
 
 		for (const sid of this.waitingStages) {
@@ -258,16 +270,54 @@ export class DAGSchedulerActor extends Actor<DAGSchedulerActorMsg> {
 					this.waitingStages.add(newId);
 				}
 
+				const resetStages = this.dag.consumeResetRequests();
+				for (const rid of resetStages) {
+					this.completedStages.delete(rid);
+					this.failedStages.delete(rid);
+					this.waitingStages.add(rid);
+					this.log.append({
+						type: "stage_reset",
+						jobId: this.jobId,
+						stageId: rid,
+						timestamp: Date.now(),
+					});
+				}
+
+				const shouldPause = this.dag.consumePauseRequest();
+
 				this.log.append({
 					type: "transition_evaluated",
 					jobId: this.jobId,
 					parentStageId: dep.parentStageId,
 					childStageId: dep.childStageId,
 					addedStages,
+					resetStages,
 					timestamp: Date.now(),
 				});
+
+				if (shouldPause) {
+					this.paused = true;
+					this.jobStatus = "paused";
+					this.log.append({
+						type: "job_paused",
+						jobId: this.jobId,
+						timestamp: Date.now(),
+					});
+				}
 			}
 		}
+	}
+
+	private onResume(): void {
+		if (!this.paused) return;
+		this.paused = false;
+		this.jobStatus = "running";
+		this.log.append({
+			type: "job_resumed",
+			jobId: this.jobId,
+			timestamp: Date.now(),
+		});
+		this.scheduleReady();
 	}
 
 	private failDependents(stageId: StageId): void {
@@ -290,6 +340,7 @@ export class DAGSchedulerActor extends Actor<DAGSchedulerActorMsg> {
 	private checkTermination(): void {
 		if (this.runningStages.size > 0) return;
 		if (this.waitingStages.size > 0) return;
+		if (this.paused) return;
 
 		if (this.terminated) return;
 		this.terminated = true;
@@ -297,6 +348,7 @@ export class DAGSchedulerActor extends Actor<DAGSchedulerActorMsg> {
 		if (this.failedStages.size > 0) {
 			const failedIds = [...this.failedStages].join(", ");
 			const error = `Job failed: stages [${failedIds}] failed`;
+			this.jobStatus = "failed";
 			this.log.append({
 				type: "job_failed",
 				jobId: this.jobId,
@@ -306,6 +358,7 @@ export class DAGSchedulerActor extends Actor<DAGSchedulerActorMsg> {
 			this.stop();
 			this.completion.reject(new Error(error));
 		} else {
+			this.jobStatus = "completed";
 			this.log.append({
 				type: "job_completed",
 				jobId: this.jobId,
@@ -318,6 +371,7 @@ export class DAGSchedulerActor extends Actor<DAGSchedulerActorMsg> {
 
 	private onCancel(): void {
 		this.terminated = true;
+		this.jobStatus = "failed";
 		for (const [, actor] of this.activeStageActors) {
 			actor.send({ type: "cancel" });
 		}
@@ -333,7 +387,35 @@ export class DAGSchedulerActor extends Actor<DAGSchedulerActorMsg> {
 		this.completion.reject(new Error("Job cancelled"));
 	}
 
+	// --- Inspection views (Gap #2) ---
+
 	getStageResults(): Map<StageId, TaskResult[]> {
 		return new Map(this.stageResults);
+	}
+
+	getJobStatus(): JobStatus {
+		return this.jobStatus;
+	}
+
+	inspect(): JobSnapshot {
+		const stages: StageInfo[] = [];
+		for (const sid of this.dag.getStageIds()) {
+			let status: StageStatus = "waiting";
+			if (this.completedStages.has(sid)) status = "completed";
+			else if (this.failedStages.has(sid)) status = "failed";
+			else if (this.runningStages.has(sid)) status = "running";
+			stages.push({
+				stageId: sid,
+				status,
+				attemptCount: this.stageAttemptCounters.get(sid) ?? 0,
+				results: this.stageResults.get(sid),
+			});
+		}
+		return {
+			jobId: this.jobId,
+			status: this.jobStatus,
+			stages,
+			stageResults: new Map(this.stageResults),
+		};
 	}
 }

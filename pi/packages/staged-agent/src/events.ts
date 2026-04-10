@@ -31,6 +31,10 @@ export type JobPausedEvent = BaseEvent & {
 	type: "job_paused";
 };
 
+export type JobResumedEvent = BaseEvent & {
+	type: "job_resumed";
+};
+
 export type StageSubmittedEvent = BaseEvent & {
 	type: "stage_submitted";
 	stageId: StageId;
@@ -45,6 +49,11 @@ export type StageFailedEvent = BaseEvent & {
 	type: "stage_failed";
 	stageId: StageId;
 	error: string;
+};
+
+export type StageResetEvent = BaseEvent & {
+	type: "stage_reset";
+	stageId: StageId;
 };
 
 export type StageAttemptStartedEvent = BaseEvent & {
@@ -69,6 +78,7 @@ export type StageAttemptFailedEvent = BaseEvent & {
 
 export type TaskStartedEvent = BaseEvent & {
 	type: "task_started";
+	stageId: StageId;
 	taskId: TaskId;
 	taskAttemptId: TaskAttemptId;
 	stageAttemptId: StageAttemptId;
@@ -77,6 +87,7 @@ export type TaskStartedEvent = BaseEvent & {
 
 export type TaskCompletedEvent = BaseEvent & {
 	type: "task_completed";
+	stageId: StageId;
 	taskId: TaskId;
 	taskAttemptId: TaskAttemptId;
 	result: TaskResult;
@@ -84,6 +95,7 @@ export type TaskCompletedEvent = BaseEvent & {
 
 export type TaskFailedEvent = BaseEvent & {
 	type: "task_failed";
+	stageId: StageId;
 	taskId: TaskId;
 	taskAttemptId: TaskAttemptId;
 	error: string;
@@ -100,6 +112,7 @@ export type TransitionEvaluatedEvent = BaseEvent & {
 	parentStageId: StageId;
 	childStageId: StageId;
 	addedStages: StageId[];
+	resetStages: StageId[];
 };
 
 export type RuntimeEvent =
@@ -107,9 +120,11 @@ export type RuntimeEvent =
 	| JobCompletedEvent
 	| JobFailedEvent
 	| JobPausedEvent
+	| JobResumedEvent
 	| StageSubmittedEvent
 	| StageCompletedEvent
 	| StageFailedEvent
+	| StageResetEvent
 	| StageAttemptStartedEvent
 	| StageAttemptCompletedEvent
 	| StageAttemptFailedEvent

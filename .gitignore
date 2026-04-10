@@ -1,0 +1,18 @@
+# Python
+py/.venv/
+**/__pycache__/
+*.pyc
+
+# TypeScript / Node
+ts/node_modules/
+ts/packages/*/dist/
+
+# Go
+go/bin/
+
+# Rust
+rust/target/
+
+# OS
+.DS_Store
+Thumbs.db

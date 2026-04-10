@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+NODE="$SCRIPT_DIR/node"
+
+# Resolve the real node binary so we can find the co-located npx
+NODE_REAL=$("$NODE" -e "process.stdout.write(process.execPath)")
+NODE_DIR=$(dirname "$NODE_REAL")
+NPX_CLI="$NODE_DIR/../lib/node_modules/npm/bin/npx-cli.js"
+
+exec "$NODE" "$NPX_CLI" "$@"

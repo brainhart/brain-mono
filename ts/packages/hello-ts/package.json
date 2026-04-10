@@ -1,0 +1,14 @@
+{
+  "name": "hello-ts",
+  "version": "0.1.0",
+  "description": "Example package in the TypeScript workspace",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc -b",
+    "dev": "tsc -b --watch",
+    "lint": "eslint src/",
+    "test": "node --test dist/index.test.js"
+  }
+}

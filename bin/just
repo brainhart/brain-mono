@@ -1,0 +1,56 @@
+#!/usr/bin/env dotslash
+
+// just 1.49.0 — https://github.com/casey/just
+{
+  "name": "just",
+  "platforms": {
+    "linux-x86_64": {
+      "size": 2241668,
+      "hash": "blake3",
+      "digest": "65208cb960f91fbbeafb414eff0231e191cb669657ff145ef78159a00c7cf6b0",
+      "format": "tar.gz",
+      "path": "just",
+      "providers": [
+        {
+          "url": "https://github.com/casey/just/releases/download/1.49.0/just-1.49.0-x86_64-unknown-linux-musl.tar.gz"
+        }
+      ]
+    },
+    "linux-aarch64": {
+      "size": 2044910,
+      "hash": "blake3",
+      "digest": "5e29b2b3e62e6733d3170793fbe84ec44cfedfc865ad7a80b2e5166225603d78",
+      "format": "tar.gz",
+      "path": "just",
+      "providers": [
+        {
+          "url": "https://github.com/casey/just/releases/download/1.49.0/just-1.49.0-aarch64-unknown-linux-musl.tar.gz"
+        }
+      ]
+    },
+    "macos-x86_64": {
+      "size": 2053847,
+      "hash": "blake3",
+      "digest": "b3cb66d2da835349b7ebfc8d4782527d7a848c5cb95534f57b80ff37b9019349",
+      "format": "tar.gz",
+      "path": "just",
+      "providers": [
+        {
+          "url": "https://github.com/casey/just/releases/download/1.49.0/just-1.49.0-x86_64-apple-darwin.tar.gz"
+        }
+      ]
+    },
+    "macos-aarch64": {
+      "size": 1897872,
+      "hash": "blake3",
+      "digest": "44661a1388566a8eba3d338015cf93c22adaf7830b6a47d3b340027b3bae0d7e",
+      "format": "tar.gz",
+      "path": "just",
+      "providers": [
+        {
+          "url": "https://github.com/casey/just/releases/download/1.49.0/just-1.49.0-aarch64-apple-darwin.tar.gz"
+        }
+      ]
+    }
+  }
+}

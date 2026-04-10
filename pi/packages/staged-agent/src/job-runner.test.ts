@@ -32,13 +32,21 @@ const successExecutor: TaskExecutor = async () => ({
 	summary: "done",
 });
 
+function batchRunner(
+	def: JobDefinition,
+	executor: TaskExecutor,
+	opts?: Partial<import("./job-runner.js").JobRunnerOpts>,
+): JobRunner {
+	return new JobRunner(def, executor, { interactive: false, ...opts });
+}
+
 describe("JobRunner (actor-based)", () => {
 	it("runs a single-stage job", async () => {
 		const def: JobDefinition = {
 			stages: [makeStage("plan")],
 			dependencies: [],
 		};
-		const result = await new JobRunner(def, successExecutor).run();
+		const result = await batchRunner(def, successExecutor).run();
 		assert.equal(result.status, "completed");
 		assert.equal(result.stageResults.size, 1);
 		assert.ok(result.stageResults.has("plan"));
@@ -61,7 +69,7 @@ describe("JobRunner (actor-based)", () => {
 			order.push(task.id);
 			return { status: "success", summary: "done" };
 		};
-		const result = await new JobRunner(def, executor).run();
+		const result = await batchRunner(def, executor).run();
 		assert.equal(result.status, "completed");
 		assert.deepEqual(order, [
 			"plan-task",
@@ -85,7 +93,7 @@ describe("JobRunner (actor-based)", () => {
 				{ parentStageId: "impl-b", childStageId: "merge" },
 			],
 		};
-		const result = await new JobRunner(def, successExecutor).run();
+		const result = await batchRunner(def, successExecutor).run();
 		assert.equal(result.status, "completed");
 		assert.equal(result.stageResults.size, 4);
 	});
@@ -101,7 +109,7 @@ describe("JobRunner (actor-based)", () => {
 			if (task.id === "implement-task") throw new Error("compile error");
 			return { status: "success", summary: "done" };
 		};
-		const result = await new JobRunner(def, executor).run();
+		const result = await batchRunner(def, executor).run();
 		assert.equal(result.status, "failed");
 		assert.ok(result.error);
 	});
@@ -119,7 +127,7 @@ describe("JobRunner (actor-based)", () => {
 			if (attemptCount < 3) throw new Error("transient");
 			return { status: "success", summary: "done" };
 		};
-		const result = await new JobRunner(def, executor).run();
+		const result = await batchRunner(def, executor).run();
 		assert.equal(result.status, "completed");
 		assert.equal(attemptCount, 3);
 	});
@@ -137,7 +145,7 @@ describe("JobRunner (actor-based)", () => {
 			if (callCount < 3) throw new Error("flaky");
 			return { status: "success", summary: "ok" };
 		};
-		const result = await new JobRunner(def, executor).run();
+		const result = await batchRunner(def, executor).run();
 		assert.equal(result.status, "completed");
 		assert.equal(callCount, 3);
 	});
@@ -172,7 +180,7 @@ describe("JobRunner (actor-based)", () => {
 			return { status: "success", summary: "done" };
 		};
 
-		const result = await new JobRunner(def, executor).run();
+		const result = await batchRunner(def, executor).run();
 		assert.equal(result.status, "completed");
 		assert.ok(result.stageResults.has("finalize"));
 		assert.deepEqual(order, [
@@ -187,7 +195,7 @@ describe("JobRunner (actor-based)", () => {
 			stages: [makeStage("plan")],
 			dependencies: [],
 		};
-		const runner = new JobRunner(def, successExecutor);
+		const runner = batchRunner(def, successExecutor);
 		await runner.run();
 		const events = runner.getEventLog().getEvents();
 		assert.ok(events.length > 0);
@@ -221,7 +229,7 @@ describe("JobRunner (actor-based)", () => {
 			if (task.id === "a-task") throw new Error("fail");
 			return { status: "success", summary: "done" };
 		};
-		const result = await new JobRunner(def, executor).run();
+		const result = await batchRunner(def, executor).run();
 		assert.equal(result.status, "failed");
 		assert.ok(result.error?.includes("a"));
 	});
@@ -238,7 +246,7 @@ describe("JobRunner (actor-based)", () => {
 			count++;
 			return { status: "success", summary: `review ${count}` };
 		};
-		const result = await new JobRunner(def, executor).run();
+		const result = await batchRunner(def, executor).run();
 		assert.equal(result.status, "completed");
 		assert.equal(count, 3);
 		assert.equal(result.stageResults.get("review")?.length, 3);
@@ -259,7 +267,7 @@ describe("JobRunner (actor-based)", () => {
 			}
 			return { status: "success", summary: "winner" };
 		};
-		const result = await new JobRunner(def, executor).run();
+		const result = await batchRunner(def, executor).run();
 		assert.equal(result.status, "completed");
 	});
 
@@ -278,7 +286,7 @@ describe("JobRunner (actor-based)", () => {
 			if (idx <= 2) return { status: "success", summary: "yes" };
 			return { status: "failure", summary: "no" };
 		};
-		const result = await new JobRunner(def, executor).run();
+		const result = await batchRunner(def, executor).run();
 		assert.equal(result.status, "completed");
 	});
 
@@ -296,7 +304,7 @@ describe("JobRunner (actor-based)", () => {
 			if (task.id === "bad-stage-task") throw new Error("boom");
 			return { status: "success", summary: "ok" };
 		};
-		const result = await new JobRunner(def, executor).run();
+		const result = await batchRunner(def, executor).run();
 		assert.equal(result.status, "failed");
 		assert.ok(result.stageResults.has("ok-stage"));
 	});
@@ -310,7 +318,7 @@ describe("JobRunner (actor-based)", () => {
 			await new Promise((r) => setTimeout(r, 5000));
 			return { status: "success", summary: "done" };
 		};
-		const runner = new JobRunner(def, executor);
+		const runner = batchRunner(def, executor);
 		const promise = runner.run();
 
 		await new Promise((r) => setTimeout(r, 50));
@@ -326,7 +334,7 @@ describe("JobRunner (actor-based)", () => {
 			stages: [],
 			dependencies: [],
 		};
-		const result = await new JobRunner(def, successExecutor).run();
+		const result = await batchRunner(def, successExecutor).run();
 		assert.equal(result.status, "completed");
 		assert.equal(result.stageResults.size, 0);
 	});
@@ -357,7 +365,7 @@ describe("JobRunner — pause/resume", () => {
 			order.push(task.id);
 			return { status: "success", summary: "done" };
 		};
-		const runner = new JobRunner(def, executor);
+		const runner = batchRunner(def, executor);
 		const promise = runner.run();
 
 		await new Promise((r) => setTimeout(r, 100));
@@ -392,7 +400,7 @@ describe("JobRunner — task collaboration", () => {
 			return { status: "success", summary: "guided success" };
 		};
 
-		const runner = new JobRunner(def, executor);
+		const runner = batchRunner(def, executor);
 		const runPromise = runner.run();
 
 		await new Promise((r) => setTimeout(r, 20));
@@ -469,7 +477,7 @@ describe("JobRunner — review loop via resetStage", () => {
 			return { status: "success", summary: "done" };
 		};
 
-		const result = await new JobRunner(def, executor).run();
+		const result = await batchRunner(def, executor).run();
 		assert.equal(result.status, "completed");
 		assert.equal(reviewCount, 3);
 		assert.ok(result.stageResults.has("finalize"));
@@ -491,7 +499,7 @@ describe("JobRunner — inspection views", () => {
 				{ parentStageId: "plan", childStageId: "impl" },
 			],
 		};
-		const runner = new JobRunner(def, successExecutor);
+		const runner = batchRunner(def, successExecutor);
 		await runner.run();
 		const snapshot = runner.inspect();
 		assert.ok(snapshot);
@@ -519,7 +527,7 @@ describe("JobRunner — recovery from event log", () => {
 			],
 		};
 
-		const result = await new JobRunner(def, successExecutor, {
+		const result = await batchRunner(def, successExecutor, {
 			eventLogPath: tmpFile,
 		}).run();
 		assert.equal(result.status, "completed");
@@ -607,7 +615,7 @@ describe("JobRunner — task execution timeout", () => {
 			await new Promise((r) => setTimeout(r, 5000));
 			return { status: "success", summary: "too late" };
 		};
-		const result = await new JobRunner(def, executor).run();
+		const result = await batchRunner(def, executor).run();
 		assert.equal(result.status, "failed");
 		assert.ok(result.error?.includes("timed out") || result.error?.includes("failed"));
 	});
@@ -619,7 +627,7 @@ describe("JobRunner — task execution timeout", () => {
 			],
 			dependencies: [],
 		};
-		const result = await new JobRunner(def, successExecutor).run();
+		const result = await batchRunner(def, successExecutor).run();
 		assert.equal(result.status, "completed");
 	});
 });
@@ -639,7 +647,7 @@ describe("JobRunner — acquire timeout", () => {
 			await new Promise((r) => setTimeout(r, 5000));
 			return { status: "success", summary: "done" };
 		};
-		const result = await new JobRunner(def, executor, {
+		const result = await batchRunner(def, executor, {
 			concurrency: 1,
 		}).run();
 		assert.equal(result.status, "failed");
@@ -657,7 +665,7 @@ describe("JobRunner — empty stage", () => {
 				{ parentStageId: "empty", childStageId: "after" },
 			],
 		};
-		const result = await new JobRunner(def, successExecutor).run();
+		const result = await batchRunner(def, successExecutor).run();
 		assert.equal(result.status, "completed");
 		assert.ok(result.stageResults.has("after"));
 	});
@@ -677,7 +685,7 @@ describe("JobRunner — transition throws", () => {
 				},
 			],
 		};
-		const result = await new JobRunner(def, successExecutor).run();
+		const result = await batchRunner(def, successExecutor).run();
 		assert.equal(result.status, "failed");
 		assert.ok(result.error?.includes("transition boom"));
 	});
@@ -694,7 +702,7 @@ describe("JobRunner — AbortSignal", () => {
 			receivedSignal = signal;
 			return { status: "success", summary: "done" };
 		};
-		await new JobRunner(def, executor).run();
+		await batchRunner(def, executor).run();
 		assert.ok(receivedSignal);
 		assert.equal(receivedSignal!.aborted, false);
 	});
@@ -715,7 +723,7 @@ describe("JobRunner — AbortSignal", () => {
 			await new Promise((r) => setTimeout(r, 5000));
 			return { status: "success", summary: "too late" };
 		};
-		await new JobRunner(def, executor).run();
+		await batchRunner(def, executor).run();
 		assert.ok(receivedSignal);
 		assert.equal(receivedSignal!.aborted, true);
 	});
@@ -763,7 +771,7 @@ describe("JobRunner — stageResults reset on review loop", () => {
 			return { status: "success", summary: "ok" };
 		};
 
-		const runner = new JobRunner(def, executor);
+		const runner = batchRunner(def, executor);
 		await runner.run();
 
 		const events = runner.getEventLog().getEvents();
@@ -772,5 +780,542 @@ describe("JobRunner — stageResults reset on review loop", () => {
 		assert.ok(reviewResults);
 		assert.equal(reviewResults.length, 1);
 		assert.equal(reviewResults[0].summary, "round 2");
+	});
+});
+
+describe("JobRunner — interactive mode", () => {
+	it("starts idle with no stages and stays alive", async () => {
+		const def: JobDefinition = {
+			stages: [],
+			dependencies: [],
+		};
+		const runner = new JobRunner(def, successExecutor, { interactive: true });
+		const promise = runner.run();
+
+		await new Promise((r) => setTimeout(r, 50));
+		assert.equal(runner.getJobStatus(), "idle");
+
+		runner.finish();
+		const result = await promise;
+		assert.equal(result.status, "completed");
+	});
+
+	it("accepts dynamically submitted stages and runs them", async () => {
+		const def: JobDefinition = {
+			stages: [],
+			dependencies: [],
+		};
+		const order: string[] = [];
+		const executor: TaskExecutor = async (task) => {
+			order.push(task.id);
+			return { status: "success", summary: "done" };
+		};
+
+		const runner = new JobRunner(def, executor, { interactive: true });
+		const promise = runner.run();
+
+		await new Promise((r) => setTimeout(r, 50));
+		assert.equal(runner.getJobStatus(), "idle");
+
+		runner.submit([makeStage("task-1")]);
+
+		await new Promise((r) => setTimeout(r, 100));
+
+		runner.submit([makeStage("task-2")]);
+
+		await new Promise((r) => setTimeout(r, 100));
+
+		runner.finish();
+		const result = await promise;
+
+		assert.equal(result.status, "completed");
+		assert.ok(order.includes("task-1-task"));
+		assert.ok(order.includes("task-2-task"));
+		assert.ok(result.stageResults.has("task-1"));
+		assert.ok(result.stageResults.has("task-2"));
+	});
+
+	it("supports dependencies between dynamically submitted stages", async () => {
+		const def: JobDefinition = {
+			stages: [],
+			dependencies: [],
+		};
+		const order: string[] = [];
+		const executor: TaskExecutor = async (task) => {
+			order.push(task.id);
+			return { status: "success", summary: "done" };
+		};
+
+		const runner = new JobRunner(def, executor, { interactive: true });
+		const promise = runner.run();
+
+		await new Promise((r) => setTimeout(r, 50));
+
+		runner.submit(
+			[makeStage("plan"), makeStage("impl")],
+			[{ parentStageId: "plan", childStageId: "impl" }],
+		);
+
+		await new Promise((r) => setTimeout(r, 200));
+
+		runner.finish();
+		const result = await promise;
+
+		assert.equal(result.status, "completed");
+		assert.deepEqual(order, ["plan-task", "impl-task"]);
+	});
+
+	it("returns to idle between submissions", async () => {
+		const def: JobDefinition = {
+			stages: [],
+			dependencies: [],
+		};
+		const runner = new JobRunner(def, successExecutor, { interactive: true });
+		const promise = runner.run();
+
+		await new Promise((r) => setTimeout(r, 50));
+		assert.equal(runner.getJobStatus(), "idle");
+
+		runner.submit([makeStage("s1")]);
+		await new Promise((r) => setTimeout(r, 100));
+		assert.equal(runner.getJobStatus(), "idle");
+
+		runner.submit([makeStage("s2")]);
+		await new Promise((r) => setTimeout(r, 100));
+		assert.equal(runner.getJobStatus(), "idle");
+
+		runner.finish();
+		const result = await promise;
+		assert.equal(result.status, "completed");
+		assert.ok(result.stageResults.has("s1"));
+		assert.ok(result.stageResults.has("s2"));
+	});
+
+	it("emits stages_added and job_idle events", async () => {
+		const def: JobDefinition = {
+			stages: [],
+			dependencies: [],
+		};
+		const runner = new JobRunner(def, successExecutor, { interactive: true });
+		const promise = runner.run();
+
+		await new Promise((r) => setTimeout(r, 50));
+		runner.submit([makeStage("s1")]);
+		await new Promise((r) => setTimeout(r, 100));
+		runner.finish();
+
+		await promise;
+
+		const events = runner.getEventLog().getEvents();
+		const types = events.map((e) => e.type);
+		assert.ok(types.includes("job_idle"));
+		assert.ok(types.includes("stages_added"));
+		assert.ok(types.includes("job_finished"));
+		assert.ok(types.includes("job_completed"));
+	});
+
+	it("can mix pre-seeded stages with dynamic submissions", async () => {
+		const def: JobDefinition = {
+			stages: [makeStage("initial")],
+			dependencies: [],
+		};
+		const order: string[] = [];
+		const executor: TaskExecutor = async (task) => {
+			order.push(task.id);
+			return { status: "success", summary: "done" };
+		};
+
+		const runner = new JobRunner(def, executor, { interactive: true });
+		const promise = runner.run();
+
+		await new Promise((r) => setTimeout(r, 100));
+
+		runner.submit([makeStage("followup")]);
+		await new Promise((r) => setTimeout(r, 100));
+
+		runner.finish();
+		const result = await promise;
+
+		assert.equal(result.status, "completed");
+		assert.ok(order.includes("initial-task"));
+		assert.ok(order.includes("followup-task"));
+	});
+
+	it("stays alive when stages fail in interactive mode", async () => {
+		const def: JobDefinition = {
+			stages: [],
+			dependencies: [],
+		};
+		const executor: TaskExecutor = async (task) => {
+			if (task.id === "bad-task") throw new Error("exploded");
+			return { status: "success", summary: "done" };
+		};
+
+		const runner = new JobRunner(def, executor, { interactive: true });
+		const promise = runner.run();
+
+		await new Promise((r) => setTimeout(r, 50));
+
+		runner.submit([makeStage("bad", ["bad-task"])]);
+		await new Promise((r) => setTimeout(r, 200));
+
+		assert.equal(runner.getJobStatus(), "idle");
+
+		runner.submit([makeStage("good")]);
+		await new Promise((r) => setTimeout(r, 200));
+		assert.equal(runner.getJobStatus(), "idle");
+
+		runner.finish();
+		const result = await promise;
+		assert.equal(result.status, "failed");
+		assert.ok(result.stageResults.has("good"));
+	});
+
+	it("projectState handles new event types correctly", async () => {
+		const def: JobDefinition = {
+			stages: [],
+			dependencies: [],
+		};
+		const runner = new JobRunner(def, successExecutor, { interactive: true });
+		const promise = runner.run();
+
+		await new Promise((r) => setTimeout(r, 50));
+		runner.submit([makeStage("s1")]);
+		await new Promise((r) => setTimeout(r, 100));
+		runner.finish();
+		await promise;
+
+		const state = projectState(runner.getEventLog().getEvents());
+		assert.equal(state.status, "completed");
+		assert.ok(state.stages.has("s1"));
+		assert.equal(state.stages.get("s1")?.status, "completed");
+	});
+
+	it("submitTask expands a prompt through the default profile", async () => {
+		const def: JobDefinition = {
+			stages: [],
+			dependencies: [],
+		};
+		const prompts: string[] = [];
+		const executor: TaskExecutor = async (task) => {
+			prompts.push(task.prompt);
+			return { status: "success", summary: "done" };
+		};
+
+		const runner = new JobRunner(def, executor, { interactive: true });
+		const promise = runner.run();
+
+		await new Promise((r) => setTimeout(r, 50));
+		runner.submitTask("Fix the login bug");
+		await new Promise((r) => setTimeout(r, 200));
+
+		runner.finish();
+		const result = await promise;
+
+		assert.equal(result.status, "completed");
+		assert.ok(prompts.some((p) => p.includes("Fix the login bug")));
+	});
+
+	it("submitTask uses a custom profile when provided", async () => {
+		const { planExecuteProfile } = await import("./profiles.js");
+		const def: JobDefinition = {
+			stages: [],
+			dependencies: [],
+		};
+		const taskIds: string[] = [];
+		const executor: TaskExecutor = async (task) => {
+			taskIds.push(task.id);
+			return { status: "success", summary: "done" };
+		};
+
+		const runner = new JobRunner(def, executor, { interactive: true });
+		const promise = runner.run();
+
+		await new Promise((r) => setTimeout(r, 50));
+		runner.submitTask("Add dark mode", planExecuteProfile);
+		await new Promise((r) => setTimeout(r, 300));
+
+		runner.finish();
+		const result = await promise;
+
+		assert.equal(result.status, "completed");
+		assert.ok(taskIds.some((id) => id.includes("plan")));
+		assert.ok(taskIds.some((id) => id.includes("execute")));
+	});
+});
+
+describe("JobRunner — hardening", () => {
+	it("handles duplicate stage IDs in submit() gracefully", async () => {
+		const def: JobDefinition = {
+			stages: [],
+			dependencies: [],
+		};
+		const runner = new JobRunner(def, successExecutor, { interactive: true });
+		const promise = runner.run();
+
+		await new Promise((r) => setTimeout(r, 50));
+		runner.submit([makeStage("dup")]);
+		await new Promise((r) => setTimeout(r, 100));
+		runner.submit([makeStage("dup")]);
+		await new Promise((r) => setTimeout(r, 100));
+
+		runner.finish();
+		const result = await promise;
+		assert.equal(result.status, "completed");
+		assert.ok(result.stageResults.has("dup"));
+	});
+
+	it("survives transition failure in interactive mode", async () => {
+		const def: JobDefinition = {
+			stages: [],
+			dependencies: [],
+		};
+		const executor: TaskExecutor = async () => ({
+			status: "success",
+			summary: "done",
+		});
+
+		const runner = new JobRunner(def, executor, { interactive: true });
+		const promise = runner.run();
+
+		await new Promise((r) => setTimeout(r, 50));
+
+		runner.submit(
+			[makeStage("s1"), makeStage("s2")],
+			[{
+				parentStageId: "s1",
+				childStageId: "s2",
+				transition: () => { throw new Error("transition boom"); },
+			}],
+		);
+
+		await new Promise((r) => setTimeout(r, 200));
+		assert.equal(runner.getJobStatus(), "idle");
+
+		runner.submit([makeStage("recovery")]);
+		await new Promise((r) => setTimeout(r, 200));
+
+		runner.finish();
+		const result = await promise;
+
+		assert.ok(result.stageResults.has("recovery"));
+	});
+
+	it("cancel works in interactive idle state", async () => {
+		const def: JobDefinition = {
+			stages: [],
+			dependencies: [],
+		};
+		const runner = new JobRunner(def, successExecutor, { interactive: true });
+		const promise = runner.run();
+
+		await new Promise((r) => setTimeout(r, 50));
+		assert.equal(runner.getJobStatus(), "idle");
+
+		runner.cancel();
+		const result = await promise;
+		assert.equal(result.status, "failed");
+		assert.ok(result.error?.includes("cancel"));
+	});
+
+	it("pause and resume work in interactive mode", async () => {
+		const def: JobDefinition = {
+			stages: [],
+			dependencies: [],
+		};
+		const order: string[] = [];
+		const executor: TaskExecutor = async (task) => {
+			order.push(task.id);
+			return { status: "success", summary: "done" };
+		};
+
+		const runner = new JobRunner(def, executor, { interactive: true });
+		const promise = runner.run();
+
+		await new Promise((r) => setTimeout(r, 50));
+		runner.submit([makeStage("before-pause")]);
+		await new Promise((r) => setTimeout(r, 100));
+
+		runner.pause("testing");
+		runner.submit([makeStage("while-paused")]);
+		await new Promise((r) => setTimeout(r, 100));
+
+		assert.equal(runner.getJobStatus(), "paused");
+
+		runner.resume();
+		await new Promise((r) => setTimeout(r, 200));
+
+		runner.finish();
+		const result = await promise;
+
+		assert.equal(result.status, "completed");
+		assert.ok(order.includes("before-pause-task"));
+		assert.ok(order.includes("while-paused-task"));
+	});
+
+	it("finish while stages are running waits for completion", async () => {
+		const def: JobDefinition = {
+			stages: [],
+			dependencies: [],
+		};
+		const executor: TaskExecutor = async () => {
+			await new Promise((r) => setTimeout(r, 200));
+			return { status: "success", summary: "done" };
+		};
+
+		const runner = new JobRunner(def, executor, { interactive: true });
+		const promise = runner.run();
+
+		await new Promise((r) => setTimeout(r, 50));
+		runner.submit([makeStage("slow-task")]);
+		await new Promise((r) => setTimeout(r, 20));
+
+		runner.finish();
+
+		const result = await promise;
+		assert.equal(result.status, "completed");
+		assert.ok(result.stageResults.has("slow-task"));
+	});
+
+	it("recover() creates a non-interactive runner", async () => {
+		const tmpFile = (await import("node:path")).join(
+			(await import("node:os")).tmpdir(),
+			`staged-agent-recover-interactive-${Date.now()}.ndjson`,
+		);
+
+		const def: JobDefinition = {
+			id: "recover-interactive-test",
+			stages: [makeStage("s1"), makeStage("s2")],
+			dependencies: [
+				{ parentStageId: "s1", childStageId: "s2" },
+			],
+		};
+
+		const log = new (await import("./event-log.js")).EventLog(tmpFile);
+		log.append({
+			type: "job_submitted",
+			jobId: "recover-interactive-test",
+			stageIds: ["s1", "s2"],
+			timestamp: 1,
+		});
+		log.append({
+			type: "stage_submitted",
+			jobId: "recover-interactive-test",
+			stageId: "s1",
+			timestamp: 2,
+		});
+		log.append({
+			type: "stage_completed",
+			jobId: "recover-interactive-test",
+			stageId: "s1",
+			timestamp: 3,
+		});
+		log.close();
+
+		const recovered = JobRunner.recover(tmpFile, def, successExecutor);
+		assert.equal(recovered.alreadyTerminal, false);
+		if (!recovered.alreadyTerminal) {
+			const result = await recovered.runner.run();
+			assert.equal(result.status, "completed");
+		}
+
+		try { (await import("node:fs")).unlinkSync(tmpFile); } catch { /* noop */ }
+	});
+
+	it("multiple rapid submissions don't corrupt state", async () => {
+		const def: JobDefinition = {
+			stages: [],
+			dependencies: [],
+		};
+		const runner = new JobRunner(def, successExecutor, { interactive: true });
+		const promise = runner.run();
+
+		await new Promise((r) => setTimeout(r, 50));
+
+		for (let i = 0; i < 10; i++) {
+			runner.submit([makeStage(`rapid-${i}`)]);
+		}
+
+		await new Promise((r) => setTimeout(r, 300));
+		runner.finish();
+
+		const result = await promise;
+		assert.equal(result.status, "completed");
+		for (let i = 0; i < 10; i++) {
+			assert.ok(result.stageResults.has(`rapid-${i}`), `Missing rapid-${i}`);
+		}
+	});
+
+	it("stale task failure after retry-with-note does not corrupt stage", async () => {
+		const def: JobDefinition = {
+			stages: [
+				makeStage("s1", ["t1"], { maxTaskAttempts: 3 }),
+			],
+			dependencies: [],
+		};
+
+		let callCount = 0;
+		const executor: TaskExecutor = async (task) => {
+			callCount++;
+			if (callCount === 1) {
+				await new Promise((r) => setTimeout(r, 150));
+				return { status: "failure", summary: "slow fail" };
+			}
+			return { status: "success", summary: "ok" };
+		};
+
+		const runner = batchRunner(def, executor);
+		const runPromise = runner.run();
+
+		await new Promise((r) => setTimeout(r, 50));
+		runner.retryTaskWithNote("t1", "s1", "try harder");
+
+		const result = await runPromise;
+		assert.equal(result.status, "completed");
+		assert.equal(callCount, 2);
+	});
+});
+
+describe("JobRunner — profile review loop", () => {
+	it("planImplementReviewProfile review loop actually re-runs review", async () => {
+		const { planImplementReviewProfile } = await import("./profiles.js");
+		const def: JobDefinition = {
+			stages: [],
+			dependencies: [],
+		};
+		let implCount = 0;
+		let reviewCount = 0;
+		const taskIds: string[] = [];
+
+		const executor: TaskExecutor = async (task) => {
+			taskIds.push(task.id);
+			if (task.id.includes("review")) {
+				reviewCount++;
+				return {
+					status: "success",
+					summary: reviewCount >= 2 ? "looks good" : "needs changes",
+					signals: { approved: reviewCount >= 2 },
+				};
+			}
+			if (task.id.includes("impl")) {
+				implCount++;
+				return { status: "success", summary: `impl attempt ${implCount}` };
+			}
+			return { status: "success", summary: "done" };
+		};
+
+		const runner = new JobRunner(def, executor, { interactive: true });
+		const promise = runner.run();
+
+		await new Promise((r) => setTimeout(r, 50));
+		runner.submitTask("test task", planImplementReviewProfile);
+		await new Promise((r) => setTimeout(r, 5000));
+
+		runner.finish();
+		const result = await promise;
+
+		assert.equal(result.status, "completed");
+		assert.ok(reviewCount >= 2, `Review should have run at least twice, ran ${reviewCount} times`);
+		assert.ok(implCount >= 2, `Impl should have run at least twice, ran ${implCount} times`);
 	});
 });

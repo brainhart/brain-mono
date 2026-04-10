@@ -9,6 +9,8 @@
 import { TUI, ProcessTerminal, type Terminal } from "@mariozechner/pi-tui";
 import type { JobRunner } from "../job-runner.js";
 import type { JobDefinition, StageId, TaskId, TaskDefinition } from "../types.js";
+import type { JobProfile } from "../profiles.js";
+import { builtinProfiles } from "../profiles.js";
 import type { JobState } from "../state.js";
 import { projectState } from "../state.js";
 import { DashboardView } from "./views/dashboard.js";
@@ -20,6 +22,7 @@ import { DagView } from "./views/dag.js";
 import { TranscriptView, parseTranscript } from "./views/transcript.js";
 import { TaskActionMenuView } from "./views/task-actions.js";
 import { TextPromptView } from "./views/text-prompt.js";
+import { ProfilePickerView } from "./views/profile-picker.js";
 
 type ActiveView =
 	| { type: "dashboard"; view: DashboardView }
@@ -33,6 +36,15 @@ export type TuiAppOpts = {
 	terminal?: Terminal;
 	/** Working directory for resolving session files. */
 	cwd?: string;
+	/** When true, enables interactive prompt submission via the TUI. */
+	interactive?: boolean;
+	/**
+	 * Profiles available in the TUI profile picker. Defaults to the
+	 * built-in profiles (single, plan-execute, plan-implement-review).
+	 * Pass an empty array to skip the picker and always use the runner's
+	 * default profile.
+	 */
+	profiles?: JobProfile[];
 };
 
 export class TuiApp {
@@ -41,11 +53,17 @@ export class TuiApp {
 	private readonly definition: JobDefinition;
 	private readonly runner: JobRunner;
 	private readonly cwd: string;
+	private readonly interactive: boolean;
+	private readonly profiles: JobProfile[];
+	private readonly profilesExplicit: boolean;
+	private readonly dynamicStageDefs = new Map<string, import("../types.js").StageDefinition>();
+	private nextStageNum = 1;
 	private state: JobState;
 	private viewStack: ActiveView[];
 	private helpOverlay: HelpView | undefined;
 	private taskActionOverlay: TaskActionMenuView | undefined;
 	private textPromptOverlay: TextPromptView | undefined;
+	private profilePickerOverlay: ProfilePickerView | undefined;
 	private unsubscribe: (() => void) | undefined;
 	private renderTimer: ReturnType<typeof setInterval> | undefined;
 	private readonly startTime: number;
@@ -57,6 +75,9 @@ export class TuiApp {
 		this.terminal = opts?.terminal ?? new ProcessTerminal();
 		this.tui = new TUI(this.terminal);
 		this.cwd = opts?.cwd ?? process.cwd();
+		this.interactive = opts?.interactive ?? false;
+		this.profilesExplicit = opts?.profiles !== undefined;
+		this.profiles = opts?.profiles ?? [];
 		this.startTime = Date.now();
 
 		this.state = {
@@ -71,6 +92,7 @@ export class TuiApp {
 
 		const dashboard = new DashboardView(definition);
 		dashboard.setStartTime(this.startTime);
+		dashboard.setInteractive(this.interactive);
 		dashboard.setState(this.state);
 		dashboard.onAction = (a) => this.handleDashboardAction(a);
 		this.viewStack = [{ type: "dashboard", view: dashboard }];
@@ -122,6 +144,9 @@ export class TuiApp {
 		} else if (this.textPromptOverlay) {
 			this.tui.addChild(this.textPromptOverlay);
 			this.tui.setFocus(this.textPromptOverlay);
+		} else if (this.profilePickerOverlay) {
+			this.tui.addChild(this.profilePickerOverlay);
+			this.tui.setFocus(this.profilePickerOverlay);
 		} else if (this.taskActionOverlay) {
 			this.tui.addChild(this.taskActionOverlay);
 			this.tui.setFocus(this.taskActionOverlay);
@@ -134,7 +159,10 @@ export class TuiApp {
 	private updateViewStates(): void {
 		for (const entry of this.viewStack) {
 			switch (entry.type) {
-				case "dashboard": entry.view.setState(this.state); break;
+				case "dashboard":
+					entry.view.addStageDefs(this.dynamicStageDefs);
+					entry.view.setState(this.state);
+					break;
 				case "stage": entry.view.setState(this.state); break;
 				case "task": entry.view.setState(this.state); break;
 				case "event_log": entry.view.setEvents(this.runner.getEventLog().getEvents()); break;
@@ -146,7 +174,7 @@ export class TuiApp {
 	private handleDashboardAction(action: import("./views/dashboard.js").DashboardAction): void {
 		switch (action.type) {
 			case "drill_stage": {
-				const stageDef = this.definition.stages.find((s) => s.id === action.stageId);
+				const stageDef = this.findStageDef(action.stageId);
 				const name = stageDef?.name ?? action.stageId;
 				const breadcrumb = `Job → ${name}`;
 				const view = new StageView(action.stageId, stageDef, breadcrumb);
@@ -170,6 +198,12 @@ export class TuiApp {
 				break;
 			case "view_dag":
 				this.pushView({ type: "dag", view: this.createDagView() });
+				break;
+			case "submit_prompt":
+				this.openSubmitPrompt();
+				break;
+			case "finish":
+				this.runner.finish();
 				break;
 			case "help":
 				this.showHelp();
@@ -355,6 +389,67 @@ export class TuiApp {
 		this.tui.requestRender();
 	}
 
+	private openSubmitPrompt(): void {
+		const profiles = this.availableProfiles;
+		if (profiles.length <= 1) {
+			this.openSubmitTextPrompt(profiles[0] ?? this.runner.getDefaultProfile());
+			return;
+		}
+
+		const picker = new ProfilePickerView(profiles);
+		picker.onAction = (a) => {
+			if (a.type === "cancel") {
+				this.profilePickerOverlay = undefined;
+				this.syncActiveView();
+				this.tui.requestRender();
+				return;
+			}
+			if (a.type === "quit") {
+				this.profilePickerOverlay = undefined;
+				this.stop();
+				return;
+			}
+			this.profilePickerOverlay = undefined;
+			this.openSubmitTextPrompt(a.profile);
+		};
+		this.profilePickerOverlay = picker;
+		this.syncActiveView();
+		this.tui.requestRender();
+	}
+
+	private openSubmitTextPrompt(profile: JobProfile): void {
+		const overlay = new TextPromptView(
+			`New task · ${profile.name}`,
+			"Describe what you want the agent to do.",
+			"e.g. Refactor the auth module to use JWT",
+		);
+		overlay.onAction = (a) => {
+			if (a.type === "cancel") {
+				this.textPromptOverlay = undefined;
+				this.syncActiveView();
+				this.tui.requestRender();
+				return;
+			}
+			this.textPromptOverlay = undefined;
+			const counter = this.runner.peekNextStageCounter();
+			const { stages } = profile.generate(a.value, counter);
+			for (const s of stages) {
+				this.dynamicStageDefs.set(s.id, s);
+			}
+			this.runner.submitTask(a.value, profile);
+			this.syncActiveView();
+			this.tui.requestRender();
+		};
+		this.textPromptOverlay = overlay;
+		this.syncActiveView();
+		this.tui.requestRender();
+	}
+
+	private get availableProfiles(): JobProfile[] {
+		if (this.profilesExplicit) return this.profiles;
+		return this.profiles.length > 0 ? this.profiles : builtinProfiles;
+	}
+
 	private createEventLogView(): EventLogView {
 		const view = new EventLogView();
 		view.setEvents(this.runner.getEventLog().getEvents());
@@ -413,8 +508,18 @@ export class TuiApp {
 		}
 	}
 
+	private findStageDef(stageId: StageId): import("../types.js").StageDefinition | undefined {
+		const staticDef = this.definition.stages.find((s) => s.id === stageId);
+		if (staticDef) return staticDef;
+		return this.dynamicStageDefs.get(stageId);
+	}
+
 	private findTaskDef(taskId: TaskId): TaskDefinition | undefined {
 		for (const stage of this.definition.stages) {
+			const td = stage.tasks.find((t) => t.id === taskId);
+			if (td) return td;
+		}
+		for (const [, stage] of this.dynamicStageDefs) {
 			const td = stage.tasks.find((t) => t.id === taskId);
 			if (td) return td;
 		}

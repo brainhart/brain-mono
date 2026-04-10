@@ -47,7 +47,13 @@ export type DAGSchedulerActorMsg =
 			taskId: string;
 			stageId: StageId;
 			note: string;
-	  };
+	  }
+	| {
+			type: "add_stages";
+			stages: import("./types.js").StageDefinition[];
+			dependencies: import("./types.js").StageDependency[];
+	  }
+	| { type: "finish" };
 
 /**
  * Central orchestrator actor.
@@ -69,7 +75,9 @@ export class DAGSchedulerActor extends Actor<DAGSchedulerActorMsg> {
 
 	private terminated = false;
 	private paused = false;
+	private finishRequested = false;
 	private jobStatus: JobStatus = "pending";
+	private readonly interactive: boolean;
 	readonly completion: Deferred<Map<StageId, TaskResult[]>>;
 
 	constructor(
@@ -78,9 +86,11 @@ export class DAGSchedulerActor extends Actor<DAGSchedulerActorMsg> {
 		private readonly executor: StreamingTaskExecutor,
 		private readonly pool: ActorRef<SessionPoolMsg>,
 		private readonly log: EventLog,
+		opts?: { interactive?: boolean },
 	) {
 		super();
 		this.completion = new Deferred();
+		this.interactive = opts?.interactive ?? false;
 	}
 
 	protected async handle(msg: DAGSchedulerActorMsg): Promise<void> {
@@ -123,12 +133,21 @@ export class DAGSchedulerActor extends Actor<DAGSchedulerActorMsg> {
 			case "retry_task_with_note":
 				this.onRetryTaskWithNote(msg.taskId, msg.stageId, msg.note);
 				break;
+			case "add_stages":
+				this.onAddStages(msg.stages, msg.dependencies);
+				break;
+			case "finish":
+				this.onFinish();
+				break;
 		}
 	}
 
 	private beginJob(recovery: boolean): void {
-		this.jobStatus = "running";
-		for (const sid of this.dag.getStageIds()) {
+		const stageIds = this.dag.getStageIds();
+		const hasWork = stageIds.length > 0;
+
+		this.jobStatus = hasWork ? "running" : (this.interactive ? "idle" : "running");
+		for (const sid of stageIds) {
 			this.waitingStages.add(sid);
 		}
 
@@ -142,12 +161,22 @@ export class DAGSchedulerActor extends Actor<DAGSchedulerActorMsg> {
 			this.log.append({
 				type: "job_submitted",
 				jobId: this.jobId,
-				stageIds: this.dag.getStageIds(),
+				stageIds,
 				timestamp: Date.now(),
 			});
 		}
 
-		this.scheduleReady();
+		if (hasWork) {
+			this.scheduleReady();
+		} else if (this.interactive) {
+			this.log.append({
+				type: "job_idle",
+				jobId: this.jobId,
+				timestamp: Date.now(),
+			});
+		} else {
+			this.scheduleReady();
+		}
 	}
 
 	private scheduleReady(): void {
@@ -261,6 +290,17 @@ export class DAGSchedulerActor extends Actor<DAGSchedulerActorMsg> {
 			await this.evaluateTransitions(stageId, results);
 		} catch (err) {
 			const msg = err instanceof Error ? err.message : String(err);
+			if (this.interactive) {
+				this.log.append({
+					type: "stage_failed",
+					jobId: this.jobId,
+					stageId,
+					error: `Transition function failed: ${msg}`,
+					timestamp: Date.now(),
+				});
+				this.scheduleReady();
+				return;
+			}
 			this.log.append({
 				type: "job_failed",
 				jobId: this.jobId,
@@ -450,6 +490,74 @@ export class DAGSchedulerActor extends Actor<DAGSchedulerActorMsg> {
 		actor.send({ type: "retry_task_with_note", taskId, note });
 	}
 
+	private onAddStages(
+		stages: import("./types.js").StageDefinition[],
+		dependencies: import("./types.js").StageDependency[],
+	): void {
+		if (this.terminated) return;
+
+		const addedIds: StageId[] = [];
+		const depEdges: Array<{ parent: StageId; child: StageId }> = [];
+
+		try {
+			for (const stage of stages) {
+				if (!this.dag.getStage(stage.id)) {
+					this.dag.addStage(stage);
+					this.waitingStages.add(stage.id);
+					addedIds.push(stage.id);
+				}
+			}
+
+			for (const dep of dependencies) {
+				if (!this.dag.getDependency(dep.parentStageId, dep.childStageId)) {
+					this.dag.addDependency(dep.parentStageId, dep.childStageId, dep.transition);
+					depEdges.push({ parent: dep.parentStageId, child: dep.childStageId });
+				}
+			}
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err);
+			this.log.append({
+				type: "stage_failed",
+				jobId: this.jobId,
+				stageId: addedIds[addedIds.length - 1] ?? "unknown",
+				error: `Failed to add stages: ${msg}`,
+				timestamp: Date.now(),
+			});
+			return;
+		}
+
+		if (addedIds.length > 0) {
+			this.log.append({
+				type: "stages_added",
+				jobId: this.jobId,
+				stageIds: addedIds,
+				dependencyEdges: depEdges,
+				timestamp: Date.now(),
+			});
+		}
+
+		if (this.jobStatus === "idle") {
+			this.jobStatus = "running";
+		}
+
+		this.scheduleReady();
+	}
+
+	private onFinish(): void {
+		if (this.terminated) return;
+		this.finishRequested = true;
+
+		this.log.append({
+			type: "job_finished",
+			jobId: this.jobId,
+			timestamp: Date.now(),
+		});
+
+		if (this.runningStages.size === 0 && this.waitingStages.size === 0) {
+			this.checkTermination();
+		}
+	}
+
 	private failDependents(rootStageId: StageId): void {
 		const queue = [rootStageId];
 		while (queue.length > 0) {
@@ -477,6 +585,35 @@ export class DAGSchedulerActor extends Actor<DAGSchedulerActorMsg> {
 		if (this.paused) return;
 
 		if (this.terminated) return;
+
+		if (this.failedStages.size > 0 && !this.interactive) {
+			this.terminated = true;
+			const failedIds = [...this.failedStages].join(", ");
+			const error = `Job failed: stages [${failedIds}] failed`;
+			this.jobStatus = "failed";
+			this.log.append({
+				type: "job_failed",
+				jobId: this.jobId,
+				error,
+				timestamp: Date.now(),
+			});
+			this.stop();
+			this.completion.reject(new Error(error));
+			return;
+		}
+
+		if (this.interactive && !this.finishRequested) {
+			if (this.jobStatus !== "idle") {
+				this.jobStatus = "idle";
+				this.log.append({
+					type: "job_idle",
+					jobId: this.jobId,
+					timestamp: Date.now(),
+				});
+			}
+			return;
+		}
+
 		this.terminated = true;
 
 		if (this.failedStages.size > 0) {

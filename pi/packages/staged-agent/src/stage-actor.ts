@@ -49,6 +49,8 @@ type TaskSlot = {
 	result?: TaskResult;
 	done: boolean;
 	activeActor?: TaskActor;
+	/** The attempt ID of the currently active actor, used to discard stale messages. */
+	activeAttemptId?: TaskAttemptId;
 	operatorNotes: TaskOperatorNote[];
 	retryGuidance: string[];
 };
@@ -113,11 +115,11 @@ export class StageActor extends Actor<StageActorMsg> {
 				break;
 
 			case "task_completed":
-				this.onTaskCompleted(msg.taskId, msg.result);
+				this.onTaskCompleted(msg.taskId, msg.taskAttemptId, msg.result);
 				break;
 
 			case "task_failed":
-				this.onTaskFailed(msg.taskId, msg.error);
+				this.onTaskFailed(msg.taskId, msg.taskAttemptId, msg.error);
 				break;
 
 			case "task_operator_note":
@@ -173,6 +175,7 @@ export class StageActor extends Actor<StageActorMsg> {
 		);
 
 		slot.activeActor = actor;
+		slot.activeAttemptId = taskAttemptId;
 		actor.send({ type: "run" });
 	}
 
@@ -206,23 +209,27 @@ export class StageActor extends Actor<StageActorMsg> {
 		};
 	}
 
-	private onTaskCompleted(taskId: string, result: TaskResult): void {
+	private onTaskCompleted(taskId: string, attemptId: TaskAttemptId, result: TaskResult): void {
 		const slot = this.slots.get(taskId);
 		if (!slot || slot.done) return;
+		if (slot.activeAttemptId !== attemptId) return;
 
 		slot.done = true;
 		slot.result = result;
 		slot.activeActor = undefined;
+		slot.activeAttemptId = undefined;
 		this.results.push(result);
 
 		this.checkPolicy();
 	}
 
-	private onTaskFailed(taskId: string, error: string): void {
+	private onTaskFailed(taskId: string, attemptId: TaskAttemptId, error: string): void {
 		const slot = this.slots.get(taskId);
 		if (!slot || slot.done) return;
+		if (slot.activeAttemptId !== attemptId) return;
 
 		slot.activeActor = undefined;
+		slot.activeAttemptId = undefined;
 
 		if (slot.attemptCount < this.maxTaskAttempts) {
 			this.spawnTask(slot);

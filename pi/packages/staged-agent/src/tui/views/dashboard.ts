@@ -16,6 +16,8 @@ export type DashboardAction =
 	| { type: "help" }
 	| { type: "toggle_log" }
 	| { type: "view_dag" }
+	| { type: "submit_prompt" }
+	| { type: "finish" }
 	| { type: "quit" };
 
 export class DashboardView implements Component {
@@ -24,20 +26,36 @@ export class DashboardView implements Component {
 	private readonly keyState = new KeyState();
 	private state: JobState | undefined;
 	private startTime = Date.now();
+	private _interactive = false;
+	private readonly extraStageDefs = new Map<StageId, import("../../types.js").StageDefinition>();
 	onAction: ((action: DashboardAction) => void) | undefined;
 
 	constructor(private readonly definition: JobDefinition) {
 		this.stageIds = definition.stages.map((s) => s.id);
 	}
 
+	setInteractive(v: boolean): void { this._interactive = v; }
+
 	setStartTime(t: number): void { this.startTime = t; }
+
+	addStageDefs(defs: Map<string, import("../../types.js").StageDefinition>): void {
+		for (const [id, def] of defs) {
+			this.extraStageDefs.set(id, def);
+		}
+	}
 
 	setState(state: JobState): void {
 		this.state = state;
-		const dynStageIds = [...state.stages.keys()].filter((id) => !this.stageIds.includes(id));
+		const knownSet = new Set(this.stageIds);
+		const dynStageIds = [...state.stages.keys()].filter((id) => !knownSet.has(id));
 		if (dynStageIds.length > 0) {
-			this.stageIds = [...this.definition.stages.map((s) => s.id), ...dynStageIds];
+			this.stageIds = [...this.stageIds, ...dynStageIds];
 		}
+		this.cursor = clampCursor(this.cursor, this.stageIds.length);
+	}
+
+	private lookupStageDef(stageId: StageId): import("../../types.js").StageDefinition | undefined {
+		return this.definition.stages.find((s) => s.id === stageId) ?? this.extraStageDefs.get(stageId);
 	}
 
 	invalidate(): void {}
@@ -64,6 +82,8 @@ export class DashboardView implements Component {
 		else if (matchesKey(data, "c")) this.onAction?.({ type: "cancel" });
 		else if (matchesKey(data, "shift+l")) this.onAction?.({ type: "toggle_log" });
 		else if (matchesKey(data, "d")) this.onAction?.({ type: "view_dag" });
+		else if (matchesKey(data, "n")) this.onAction?.({ type: "submit_prompt" });
+		else if (matchesKey(data, "shift+f")) this.onAction?.({ type: "finish" });
 	}
 
 	render(width: number): string[] {
@@ -86,26 +106,33 @@ export class DashboardView implements Component {
 		lines.push(horizontalRule(width));
 		lines.push("");
 
-		for (let i = 0; i < this.stageIds.length; i++) {
-			const sid = this.stageIds[i];
-			const ss = state.stages.get(sid);
-			const line = this.renderStageLine(sid, ss, width, state, now);
-			const prefix = i === this.cursor
-				? colored(" ▶ ", FG_CYAN, BOLD)
-				: "   ";
-			lines.push(prefix + line);
-		}
-
-		lines.push("");
-
-		const summary = this.renderSummary(state, now);
-		if (summary) {
-			lines.push(summary);
+		if (this.stageIds.length === 0 && (state.status === "idle" || state.status === "pending")) {
 			lines.push("");
+			lines.push(colored("  No stages yet.", FG_GRAY));
+			lines.push(colored("  Press ", FG_GRAY) + colored("n", FG_CYAN, BOLD) + colored(" to submit a new task.", FG_GRAY));
+			lines.push("");
+		} else {
+			for (let i = 0; i < this.stageIds.length; i++) {
+				const sid = this.stageIds[i];
+				const ss = state.stages.get(sid);
+				const line = this.renderStageLine(sid, ss, width, state, now);
+				const prefix = i === this.cursor
+					? colored(" ▶ ", FG_CYAN, BOLD)
+					: "   ";
+				lines.push(prefix + line);
+			}
+
+			lines.push("");
+
+			const summary = this.renderSummary(state, now);
+			if (summary) {
+				lines.push(summary);
+				lines.push("");
+			}
 		}
 
 		lines.push(horizontalRule(width));
-		lines.push(this.renderFooterBar(state.status));
+		lines.push(this.renderFooterBar(state.status, this._interactive));
 		return lines;
 	}
 
@@ -115,7 +142,7 @@ export class DashboardView implements Component {
 	): string {
 		const status = ss?.status ?? "waiting";
 		const icon = statusIcon(status);
-		const stageDef = this.definition.stages.find((s) => s.id === stageId);
+		const stageDef = this.lookupStageDef(stageId);
 		const name = stageDef?.name ?? stageId;
 		const taskIds = stageDef?.tasks.map((t) => t.id) ?? [];
 		const attempt = ss?.attemptCount ?? 0;
@@ -181,10 +208,15 @@ export class DashboardView implements Component {
 		return parts.join(colored(" · ", FG_GRAY, DIM));
 	}
 
-	private renderFooterBar(jobStatus: string): string {
+	private renderFooterBar(jobStatus: string, interactive: boolean): string {
 		const keys: Array<[string, string]> = [];
-		keys.push(["j/k", "nav"]);
-		keys.push(["⏎/l", "select"]);
+		if (this.stageIds.length > 0) {
+			keys.push(["j/k", "nav"]);
+			keys.push(["⏎/l", "select"]);
+		}
+		if (interactive) {
+			keys.push(["n", "new task"]);
+		}
 		if (jobStatus === "running") {
 			keys.push(["p", "pause"]);
 			keys.push(["c", "cancel"]);
@@ -193,8 +225,13 @@ export class DashboardView implements Component {
 			keys.push(["r", "resume"]);
 			keys.push(["c", "cancel"]);
 		}
-		keys.push(["L", "log"]);
-		keys.push(["d", "dag"]);
+		if (interactive && (jobStatus === "idle" || jobStatus === "running")) {
+			keys.push(["F", "finish"]);
+		}
+		if (this.stageIds.length > 0) {
+			keys.push(["L", "log"]);
+			keys.push(["d", "dag"]);
+		}
 		keys.push(["?", "help"]);
 		keys.push(["q", "quit"]);
 		return renderFooter(keys, { mode: "NORMAL" });

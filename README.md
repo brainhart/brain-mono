@@ -13,6 +13,7 @@ sub-projects using native monorepo semantics:
 | TypeScript | npm workspaces    | `ts/packages/*`      | `mkdir ts/packages/NAME && cd ts/packages/NAME && npm init` |
 | Go         | go.work           | `go/*/`              | `mkdir go/NAME && cd go/NAME && ../../bin/go mod init ...` then `go work use ./NAME` |
 | Rust       | cargo workspace   | `rust/crates/*`      | `cargo new rust/crates/NAME`             |
+| Pi         | package collection | `pi/packages/*`     | `mkdir -p pi/packages/NAME/{extensions,skills,prompts}` |
 
 ## Prerequisites
 
@@ -59,6 +60,14 @@ rust/               Rust workspace (cargo)
 ├── Cargo.toml      workspace root
 └── crates/
     └── hello-rust/ example crate
+
+pi/                 Pi resource packages
+├── README.md       usage and organization guidance
+└── packages/
+    └── brain-pi-kit/
+        ├── extensions/
+        ├── prompts/
+        └── skills/
 ```
 
 ## Quick start
@@ -76,6 +85,9 @@ rust/               Rust workspace (cargo)
 # Install / sync dependencies
 ./bin/just py-sync       # uv sync --all-packages
 ./bin/just ts-install    # npm install (workspace-aware)
+
+# Inspect the starter pi package
+ls pi/packages/brain-pi-kit
 
 # Lint all workspaces
 ./bin/just lint-all

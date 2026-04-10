@@ -105,6 +105,8 @@ ls pi/packages/brain-pi-kit
 ## Pi references
 
 - [pi-coding-agent extension examples](https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent/examples/extensions)
+- [pi-skills](https://github.com/badlogic/pi-skills)
+- [pi-coding-agent SDK examples](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/examples/sdk)
 
 ## Tool versions (pinned in `bin/`)
 

@@ -1,3 +1,5 @@
+//go:build ignore
+
 ///usr/bin/env gorun "$0" "$@"; exit $?
 // dep require github.com/fatih/color v1.18.0
 // sum sha256:2b4d965193a48ed6afe11d60280eea62696620c1ae8183fac83113619286392f

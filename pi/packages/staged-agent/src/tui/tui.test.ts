@@ -137,7 +137,7 @@ describe("DashboardView", () => {
 		assert.ok(plain.includes("Planning"), "should contain stage name");
 		assert.ok(plain.includes("Implementation"), "should contain stage name");
 		assert.ok(plain.includes("Review"), "should contain stage name");
-		assert.ok(plain.includes("navigate"), "should show footer");
+		assert.ok(plain.includes("NORMAL"), "should show mode indicator in footer");
 	});
 
 	it("emits drill_stage action via onAction callback", () => {
@@ -259,8 +259,8 @@ describe("HelpView", () => {
 		const output = view.render(80).join("\n");
 		const plain = stripAnsi(output);
 		assert.ok(plain.includes("Keybindings"), "should have title");
-		assert.ok(plain.includes("enter"), "should list enter key");
-		assert.ok(plain.includes("Drill into"), "should describe enter");
+		assert.ok(plain.includes("/ l"), "should list enter/l key");
+		assert.ok(plain.includes("Drill into"), "should describe drill action");
 	});
 
 	it("emits close on escape", () => {

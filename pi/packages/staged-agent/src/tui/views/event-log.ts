@@ -5,17 +5,13 @@ import {
 	colored, formatDuration, horizontalRule,
 	FG_CYAN, FG_GRAY, FG_GREEN, FG_RED, FG_YELLOW, FG_WHITE, BOLD, DIM,
 } from "../helpers.js";
+import { parseNavKey, clampScroll, renderFooter } from "../keybindings.js";
 
 export type EventLogViewAction =
 	| { type: "back" }
 	| { type: "help" }
 	| { type: "quit" };
 
-/**
- * Live scrollable feed of runtime events.
- * Shows what the system is doing as it happens — stage transitions,
- * task starts/completions, session attachments, transition evaluations.
- */
 export class EventLogView implements Component {
 	private events: RuntimeEvent[] = [];
 	private scrollOffset = 0;
@@ -36,22 +32,23 @@ export class EventLogView implements Component {
 	invalidate(): void {}
 
 	handleInput(data: string): void {
-		if (matchesKey(data, "escape") || matchesKey(data, "backspace") || matchesKey(data, "l")) {
-			this.onAction?.({ type: "back" });
-		} else if (matchesKey(data, "up") || matchesKey(data, "k")) {
-			this.scrollOffset = Math.max(0, this.scrollOffset - 1);
-			this.autoScroll = false;
-		} else if (matchesKey(data, "down") || matchesKey(data, "j")) {
-			this.scrollOffset = Math.min(Math.max(0, this.events.length - 1), this.scrollOffset + 1);
-			if (this.events.length === 0 || this.scrollOffset >= this.events.length - 10) this.autoScroll = true;
-		} else if (matchesKey(data, "g")) {
-			this.scrollOffset = Math.max(0, this.events.length - 10);
-			this.autoScroll = true;
-		} else if (matchesKey(data, "?")) {
-			this.onAction?.({ type: "help" });
-		} else if (matchesKey(data, "q")) {
-			this.onAction?.({ type: "quit" });
+		const nav = parseNavKey(data);
+		if (nav) {
+			switch (nav.type) {
+				case "up":   this.scrollOffset = clampScroll(this.scrollOffset - 1, this.events.length); this.autoScroll = false; return;
+				case "down": this.scrollOffset = clampScroll(this.scrollOffset + 1, this.events.length); if (this.scrollOffset >= this.events.length - 10) this.autoScroll = true; return;
+				case "top":  this.scrollOffset = 0; this.autoScroll = false; return;
+				case "bottom": this.scrollOffset = Math.max(0, this.events.length - 10); this.autoScroll = true; return;
+				case "half_page_up":   this.scrollOffset = clampScroll(this.scrollOffset - 15, this.events.length); this.autoScroll = false; return;
+				case "half_page_down": this.scrollOffset = clampScroll(this.scrollOffset + 15, this.events.length); if (this.scrollOffset >= this.events.length - 10) this.autoScroll = true; return;
+				case "back":  this.onAction?.({ type: "back" }); return;
+				case "help":  this.onAction?.({ type: "help" }); return;
+				case "quit":  this.onAction?.({ type: "quit" }); return;
+				case "enter": return;
+			}
 		}
+
+		if (matchesKey(data, "shift+l")) this.onAction?.({ type: "back" });
 	}
 
 	render(width: number): string[] {
@@ -61,7 +58,7 @@ export class EventLogView implements Component {
 		lines.push(
 			colored(" Event Log", BOLD, FG_WHITE)
 			+ "  " + colored(`${this.events.length} events`, FG_GRAY)
-			+ (this.autoScroll ? colored("  (auto-scroll)", FG_CYAN, DIM) : ""),
+			+ (this.autoScroll ? colored("  (tail)", FG_CYAN, DIM) : ""),
 		);
 		lines.push(horizontalRule(width));
 		lines.push("");
@@ -77,7 +74,7 @@ export class EventLogView implements Component {
 
 		lines.push("");
 		lines.push(horizontalRule(width));
-		lines.push(this.renderFooter());
+		lines.push(renderFooter([["j/k", "scroll"], ["gg/G", "top/tail"], ["C-d/u", "page"], ["h/esc", "back"], ["q", "quit"]], { mode: "NORMAL" }));
 		return lines;
 	}
 
@@ -125,14 +122,14 @@ export class EventLogView implements Component {
 			}
 			case "task_failed":
 				return colored("task_failed", FG_RED) + colored(` ${event.taskId}`, FG_WHITE) + colored(` ${truncateToWidth(event.error, maxWidth - 30)}`, FG_RED);
-			case "session_attached":
-				return colored("session", FG_GRAY) + colored(` ${event.sessionId} → ${event.taskAttemptId}`, FG_GRAY, DIM);
 			case "task_progress": {
 				const p = event.progress;
 				const kind = colored(p.kind, FG_GRAY);
 				const text = p.text ? truncateToWidth(p.text, maxWidth - 30) : (p.toolName ?? "");
 				return colored("progress", FG_GRAY, DIM) + ` ${event.taskId} ${kind} ${text}`;
 			}
+			case "session_attached":
+				return colored("session", FG_GRAY) + colored(` ${event.sessionId} → ${event.taskAttemptId}`, FG_GRAY, DIM);
 			case "transition_evaluated": {
 				let detail = colored("transition", FG_YELLOW) + colored(` ${event.parentStageId} → ${event.childStageId}`, FG_WHITE);
 				if (event.addedStages.length > 0) detail += colored(` +${event.addedStages.join(",")}`, FG_GREEN);
@@ -140,14 +137,5 @@ export class EventLogView implements Component {
 				return detail;
 			}
 		}
-	}
-
-	private renderFooter(): string {
-		const keys: string[] = [];
-		keys.push(colored("↑↓", FG_CYAN) + " scroll");
-		keys.push(colored("g", FG_CYAN) + " tail");
-		keys.push(colored("esc/l", FG_GRAY) + " back");
-		keys.push(colored("q", FG_GRAY) + " quit");
-		return " " + keys.join("  ");
 	}
 }

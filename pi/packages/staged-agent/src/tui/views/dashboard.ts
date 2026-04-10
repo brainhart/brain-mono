@@ -1,11 +1,12 @@
 import type { Component } from "@mariozechner/pi-tui";
 import { matchesKey, truncateToWidth } from "@mariozechner/pi-tui";
 import type { JobState, StageState } from "../../state.js";
-import type { JobDefinition, StageId, TaskStatus } from "../../types.js";
+import type { JobDefinition, StageId } from "../../types.js";
 import {
 	colored, statusIcon, statusLabel, formatDuration, horizontalRule, padRight,
 	FG_CYAN, FG_GRAY, FG_YELLOW, FG_RED, FG_GREEN, FG_WHITE, BOLD, DIM,
 } from "../helpers.js";
+import { parseNavKey, clampCursor, renderFooter } from "../keybindings.js";
 
 export type DashboardAction =
 	| { type: "drill_stage"; stageId: StageId }
@@ -33,29 +34,27 @@ export class DashboardView implements Component {
 	invalidate(): void {}
 
 	handleInput(data: string): void {
-		if (matchesKey(data, "up") || matchesKey(data, "k")) {
-			this.cursor = Math.max(0, this.cursor - 1);
-		} else if (matchesKey(data, "down") || matchesKey(data, "j")) {
-			this.cursor = Math.min(this.stageIds.length - 1, this.cursor + 1);
-		} else if (matchesKey(data, "enter")) {
-			if (this.stageIds.length > 0) {
-				this.onAction?.({ type: "drill_stage", stageId: this.stageIds[this.cursor] });
+		const nav = parseNavKey(data);
+		if (nav) {
+			switch (nav.type) {
+				case "up":    this.cursor = clampCursor(this.cursor - 1, this.stageIds.length); return;
+				case "down":  this.cursor = clampCursor(this.cursor + 1, this.stageIds.length); return;
+				case "top":   this.cursor = 0; return;
+				case "bottom": this.cursor = clampCursor(this.stageIds.length - 1, this.stageIds.length); return;
+				case "half_page_up":   this.cursor = clampCursor(this.cursor - 5, this.stageIds.length); return;
+				case "half_page_down": this.cursor = clampCursor(this.cursor + 5, this.stageIds.length); return;
+				case "enter": if (this.stageIds.length > 0) this.onAction?.({ type: "drill_stage", stageId: this.stageIds[this.cursor] }); return;
+				case "help":  this.onAction?.({ type: "help" }); return;
+				case "quit":  this.onAction?.({ type: "quit" }); return;
+				case "back":  return;
 			}
-		} else if (matchesKey(data, "p")) {
-			this.onAction?.({ type: "pause" });
-		} else if (matchesKey(data, "r")) {
-			this.onAction?.({ type: "resume" });
-		} else if (matchesKey(data, "c")) {
-			this.onAction?.({ type: "cancel" });
-		} else if (matchesKey(data, "l")) {
-			this.onAction?.({ type: "toggle_log" });
-		} else if (matchesKey(data, "d")) {
-			this.onAction?.({ type: "view_dag" });
-		} else if (matchesKey(data, "?")) {
-			this.onAction?.({ type: "help" });
-		} else if (matchesKey(data, "q")) {
-			this.onAction?.({ type: "quit" });
 		}
+
+		if (matchesKey(data, "p")) this.onAction?.({ type: "pause" });
+		else if (matchesKey(data, "r")) this.onAction?.({ type: "resume" });
+		else if (matchesKey(data, "c")) this.onAction?.({ type: "cancel" });
+		else if (matchesKey(data, "shift+l")) this.onAction?.({ type: "toggle_log" });
+		else if (matchesKey(data, "d")) this.onAction?.({ type: "view_dag" });
 	}
 
 	render(width: number): string[] {
@@ -102,7 +101,7 @@ export class DashboardView implements Component {
 		}
 
 		lines.push(horizontalRule(width));
-		lines.push(this.renderFooter(state.status));
+		lines.push(this.renderFooterBar(state.status));
 		return lines;
 	}
 
@@ -151,7 +150,7 @@ export class DashboardView implements Component {
 		return { total: taskIds.length, completed, running, failed };
 	}
 
-	private renderSummary(state: JobState, now: number): string | undefined {
+	private renderSummary(state: JobState, _now: number): string | undefined {
 		const allTasks = [...state.tasks.values()];
 		if (allTasks.length === 0) return undefined;
 
@@ -178,22 +177,22 @@ export class DashboardView implements Component {
 		return parts.join(colored(" · ", FG_GRAY, DIM));
 	}
 
-	private renderFooter(jobStatus: string): string {
-		const keys: string[] = [];
-		keys.push(colored("↑↓", FG_CYAN) + " navigate");
-		keys.push(colored("enter", FG_CYAN) + " drill-down");
+	private renderFooterBar(jobStatus: string): string {
+		const keys: Array<[string, string]> = [];
+		keys.push(["j/k", "nav"]);
+		keys.push(["⏎/l", "select"]);
 		if (jobStatus === "running") {
-			keys.push(colored("p", FG_YELLOW) + " pause");
-			keys.push(colored("c", FG_RED) + " cancel");
+			keys.push(["p", "pause"]);
+			keys.push(["c", "cancel"]);
 		}
 		if (jobStatus === "paused") {
-			keys.push(colored("r", FG_GREEN) + " resume");
-			keys.push(colored("c", FG_RED) + " cancel");
+			keys.push(["r", "resume"]);
+			keys.push(["c", "cancel"]);
 		}
-		keys.push(colored("l", FG_GRAY) + " log");
-		keys.push(colored("d", FG_GRAY) + " dag");
-		keys.push(colored("?", FG_GRAY) + " help");
-		keys.push(colored("q", FG_GRAY) + " quit");
-		return " " + keys.join("  ");
+		keys.push(["L", "log"]);
+		keys.push(["d", "dag"]);
+		keys.push(["?", "help"]);
+		keys.push(["q", "quit"]);
+		return renderFooter(keys, { mode: "NORMAL" });
 	}
 }

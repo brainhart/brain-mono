@@ -6,6 +6,7 @@ import {
 	colored, statusLabel, formatDuration, horizontalRule, statusIcon,
 	FG_CYAN, FG_GRAY, FG_GREEN, FG_RED, FG_YELLOW, FG_WHITE, BOLD, DIM,
 } from "../helpers.js";
+import { parseNavKey, clampScroll, renderFooter } from "../keybindings.js";
 import { ProgressFeed } from "./progress-feed.js";
 
 export type TaskViewAction =
@@ -17,6 +18,7 @@ export type TaskViewAction =
 
 export class TaskView implements Component {
 	private scrollOffset = 0;
+	private contentHeight = 0;
 	private state: JobState | undefined;
 	private breadcrumb: string;
 	onAction: ((action: TaskViewAction) => void) | undefined;
@@ -33,13 +35,25 @@ export class TaskView implements Component {
 	invalidate(): void {}
 
 	handleInput(data: string): void {
-		if (matchesKey(data, "escape") || matchesKey(data, "backspace")) {
-			this.onAction?.({ type: "back" });
-		} else if (matchesKey(data, "up") || matchesKey(data, "k")) {
-			this.scrollOffset = Math.max(0, this.scrollOffset - 1);
-		} else if (matchesKey(data, "down") || matchesKey(data, "j")) {
-			this.scrollOffset++;
-		} else if (matchesKey(data, "x")) {
+		const nav = parseNavKey(data);
+		if (nav) {
+			switch (nav.type) {
+				case "up":   case "back": {
+					if (nav.type === "up") { this.scrollOffset = clampScroll(this.scrollOffset - 1, this.contentHeight); return; }
+					this.onAction?.({ type: "back" }); return;
+				}
+				case "down":  this.scrollOffset = clampScroll(this.scrollOffset + 1, this.contentHeight); return;
+				case "top":   this.scrollOffset = 0; return;
+				case "bottom": this.scrollOffset = clampScroll(this.contentHeight, this.contentHeight); return;
+				case "half_page_up":   this.scrollOffset = clampScroll(this.scrollOffset - 15, this.contentHeight); return;
+				case "half_page_down": this.scrollOffset = clampScroll(this.scrollOffset + 15, this.contentHeight); return;
+				case "enter": return;
+				case "help":  this.onAction?.({ type: "help" }); return;
+				case "quit":  this.onAction?.({ type: "quit" }); return;
+			}
+		}
+
+		if (matchesKey(data, "x")) {
 			const ts = this.state?.tasks.get(this.taskId);
 			if (ts?.status === "running" && ts.stageId) {
 				this.onAction?.({ type: "cancel_task", taskId: this.taskId, stageId: ts.stageId });
@@ -53,10 +67,6 @@ export class TaskView implements Component {
 					this.onAction?.({ type: "view_transcript", taskId: this.taskId, sessionFile, sessionId });
 				}
 			}
-		} else if (matchesKey(data, "?")) {
-			this.onAction?.({ type: "help" });
-		} else if (matchesKey(data, "q")) {
-			this.onAction?.({ type: "quit" });
 		}
 	}
 
@@ -91,7 +101,6 @@ export class TaskView implements Component {
 		lines.push(horizontalRule(width));
 		lines.push("");
 
-		// Prompt
 		lines.push(colored("  Prompt:", BOLD, FG_CYAN));
 		lines.push("");
 		const prompt = this.taskDef?.prompt ?? "(unknown)";
@@ -99,7 +108,6 @@ export class TaskView implements Component {
 		for (const line of wrappedPrompt) lines.push("    " + line);
 		lines.push("");
 
-		// Context
 		if (this.taskDef?.context && Object.keys(this.taskDef.context).length > 0) {
 			lines.push(colored("  Context:", BOLD, FG_CYAN));
 			lines.push("");
@@ -108,18 +116,15 @@ export class TaskView implements Component {
 			lines.push("");
 		}
 
-		// Streaming progress (rendered with pi-tui Box/Text matching coding-agent style)
 		if (ts && ts.progressEntries.length > 0) {
 			const feed = new ProgressFeed();
 			feed.setEntries(ts.progressEntries);
-			const feedLines = feed.render(width);
-			lines.push(...feedLines);
+			lines.push(...feed.render(width));
 		}
 
 		lines.push(horizontalRule(width));
 		lines.push("");
 
-		// Result
 		if (ts?.result) {
 			const resultColor = ts.result.status === "success" ? FG_GREEN : FG_RED;
 			lines.push(
@@ -154,7 +159,6 @@ export class TaskView implements Component {
 			lines.push("");
 		}
 
-		// Attempt history
 		if (ts && ts.attempts.length > 1) {
 			lines.push(horizontalRule(width));
 			lines.push(colored("  Attempt History:", BOLD, FG_CYAN));
@@ -166,14 +170,16 @@ export class TaskView implements Component {
 		}
 
 		lines.push(horizontalRule(width));
-		lines.push(this.renderFooter());
+		const footerKeys: Array<[string, string]> = [["j/k", "scroll"], ["gg/G", "top/bot"], ["C-d/u", "page"]];
+		if (ts?.status === "running") footerKeys.push(["x", "cancel"]);
+		if (ts?.result?.signals?.sessionFile || ts?.sessionId) footerKeys.push(["t", "transcript"]);
+		footerKeys.push(["h/esc", "back"], ["?", "help"], ["q", "quit"]);
+		lines.push(renderFooter(footerKeys, { mode: "NORMAL" }));
 
+		this.contentHeight = lines.length;
 		const maxScroll = Math.max(0, lines.length - 1);
 		if (this.scrollOffset > maxScroll) this.scrollOffset = maxScroll;
-		if (this.scrollOffset > 0) {
-			return lines.slice(this.scrollOffset);
-		}
-		return lines;
+		return this.scrollOffset > 0 ? lines.slice(this.scrollOffset) : lines;
 	}
 
 	private renderAttemptLine(a: TaskAttemptRecord, now: number): string {
@@ -182,15 +188,9 @@ export class TaskView implements Component {
 			: formatDuration(now - a.startedAt) + "…";
 
 		let statusStr: string;
-		if (a.result) {
-			statusStr = a.result.status === "success"
-				? statusIcon("completed")
-				: statusIcon("failed");
-		} else if (a.error) {
-			statusStr = statusIcon("failed");
-		} else {
-			statusStr = statusIcon("running");
-		}
+		if (a.result) statusStr = a.result.status === "success" ? statusIcon("completed") : statusIcon("failed");
+		else if (a.error) statusStr = statusIcon("failed");
+		else statusStr = statusIcon("running");
 
 		let detail = "";
 		if (a.error) detail = colored(` ${a.error}`, FG_RED);
@@ -198,21 +198,5 @@ export class TaskView implements Component {
 		if (a.sessionId) detail += colored(` [${a.sessionId}]`, FG_GRAY, DIM);
 
 		return `    ${statusStr} #${a.attemptNumber}  ${colored(dur, FG_GRAY)}${detail}`;
-	}
-
-	private renderFooter(): string {
-		const keys: string[] = [];
-		keys.push(colored("↑↓", FG_CYAN) + " scroll");
-		const ts = this.state?.tasks.get(this.taskId);
-		if (ts?.status === "running") {
-			keys.push(colored("x", FG_RED) + " cancel task");
-		}
-		if (ts?.result?.signals?.sessionFile || ts?.sessionId) {
-			keys.push(colored("t", FG_CYAN) + " transcript");
-		}
-		keys.push(colored("esc", FG_GRAY) + " back");
-		keys.push(colored("?", FG_GRAY) + " help");
-		keys.push(colored("q", FG_GRAY) + " quit");
-		return " " + keys.join("  ");
 	}
 }

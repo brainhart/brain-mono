@@ -6,13 +6,14 @@
  */
 
 import type { Component } from "@mariozechner/pi-tui";
-import { matchesKey, truncateToWidth } from "@mariozechner/pi-tui";
+import { truncateToWidth } from "@mariozechner/pi-tui";
 import type { JobState } from "../../state.js";
 import type { JobDefinition, StageId, StageDependency } from "../../types.js";
 import {
 	colored, statusIcon, horizontalRule, formatDuration,
 	FG_CYAN, FG_GRAY, FG_WHITE, FG_YELLOW, BOLD, DIM,
 } from "../helpers.js";
+import { parseNavKey, clampScroll, renderFooter } from "../keybindings.js";
 
 export type DagViewAction =
 	| { type: "back" }
@@ -24,6 +25,7 @@ type Layer = StageId[];
 export class DagView implements Component {
 	private state: JobState | undefined;
 	private scrollOffset = 0;
+	private contentHeight = 0;
 	onAction: ((action: DagViewAction) => void) | undefined;
 
 	constructor(
@@ -34,16 +36,19 @@ export class DagView implements Component {
 	invalidate(): void {}
 
 	handleInput(data: string): void {
-		if (matchesKey(data, "escape") || matchesKey(data, "backspace") || matchesKey(data, "d")) {
-			this.onAction?.({ type: "back" });
-		} else if (matchesKey(data, "up") || matchesKey(data, "k")) {
-			this.scrollOffset = Math.max(0, this.scrollOffset - 1);
-		} else if (matchesKey(data, "down") || matchesKey(data, "j")) {
-			this.scrollOffset++;
-		} else if (matchesKey(data, "?")) {
-			this.onAction?.({ type: "help" });
-		} else if (matchesKey(data, "q")) {
-			this.onAction?.({ type: "quit" });
+		const nav = parseNavKey(data);
+		if (!nav) return;
+		switch (nav.type) {
+			case "up":   this.scrollOffset = clampScroll(this.scrollOffset - 1, this.contentHeight); return;
+			case "down": this.scrollOffset = clampScroll(this.scrollOffset + 1, this.contentHeight); return;
+			case "top":  this.scrollOffset = 0; return;
+			case "bottom": this.scrollOffset = clampScroll(this.contentHeight, this.contentHeight); return;
+			case "half_page_up":   this.scrollOffset = clampScroll(this.scrollOffset - 15, this.contentHeight); return;
+			case "half_page_down": this.scrollOffset = clampScroll(this.scrollOffset + 15, this.contentHeight); return;
+			case "back":  this.onAction?.({ type: "back" }); return;
+			case "help":  this.onAction?.({ type: "help" }); return;
+			case "quit":  this.onAction?.({ type: "quit" }); return;
+			case "enter": return;
 		}
 	}
 
@@ -99,8 +104,9 @@ export class DagView implements Component {
 
 		lines.push("");
 		lines.push(horizontalRule(width));
-		lines.push(this.renderFooter());
+		lines.push(renderFooter([["j/k", "scroll"], ["gg/G", "top/bot"], ["C-d/u", "page"], ["h/esc", "back"], ["?", "help"], ["q", "quit"]], { mode: "NORMAL" }));
 
+		this.contentHeight = lines.length;
 		const maxScroll = Math.max(0, lines.length - 1);
 		if (this.scrollOffset > maxScroll) this.scrollOffset = maxScroll;
 		return this.scrollOffset > 0 ? lines.slice(this.scrollOffset) : lines;
@@ -215,12 +221,4 @@ export class DagView implements Component {
 		return layers;
 	}
 
-	private renderFooter(): string {
-		const keys: string[] = [];
-		keys.push(colored("↑↓", FG_CYAN) + " scroll");
-		keys.push(colored("esc/d", FG_GRAY) + " back");
-		keys.push(colored("?", FG_GRAY) + " help");
-		keys.push(colored("q", FG_GRAY) + " quit");
-		return " " + keys.join("  ");
-	}
 }

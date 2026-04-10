@@ -1,11 +1,12 @@
 import type { Component } from "@mariozechner/pi-tui";
-import { matchesKey, truncateToWidth } from "@mariozechner/pi-tui";
+import { truncateToWidth } from "@mariozechner/pi-tui";
 import type { JobState, TaskState } from "../../state.js";
 import type { StageDefinition, StageId, TaskId } from "../../types.js";
 import {
 	colored, statusIcon, statusLabel, formatDuration, horizontalRule, padRight,
 	FG_CYAN, FG_GRAY, FG_YELLOW, FG_RED, FG_WHITE, BOLD, DIM,
 } from "../helpers.js";
+import { parseNavKey, clampCursor, renderFooter } from "../keybindings.js";
 
 export type StageViewAction =
 	| { type: "back" }
@@ -33,20 +34,19 @@ export class StageView implements Component {
 	invalidate(): void {}
 
 	handleInput(data: string): void {
-		if (matchesKey(data, "up") || matchesKey(data, "k")) {
-			this.cursor = Math.max(0, this.cursor - 1);
-		} else if (matchesKey(data, "down") || matchesKey(data, "j")) {
-			this.cursor = Math.min(this.taskIds.length - 1, this.cursor + 1);
-		} else if (matchesKey(data, "enter")) {
-			if (this.taskIds.length > 0) {
-				this.onAction?.({ type: "drill_task", taskId: this.taskIds[this.cursor] });
-			}
-		} else if (matchesKey(data, "escape") || matchesKey(data, "backspace")) {
-			this.onAction?.({ type: "back" });
-		} else if (matchesKey(data, "?")) {
-			this.onAction?.({ type: "help" });
-		} else if (matchesKey(data, "q")) {
-			this.onAction?.({ type: "quit" });
+		const nav = parseNavKey(data);
+		if (!nav) return;
+		switch (nav.type) {
+			case "up":    this.cursor = clampCursor(this.cursor - 1, this.taskIds.length); return;
+			case "down":  this.cursor = clampCursor(this.cursor + 1, this.taskIds.length); return;
+			case "top":   this.cursor = 0; return;
+			case "bottom": this.cursor = clampCursor(this.taskIds.length - 1, this.taskIds.length); return;
+			case "half_page_up":   this.cursor = clampCursor(this.cursor - 5, this.taskIds.length); return;
+			case "half_page_down": this.cursor = clampCursor(this.cursor + 5, this.taskIds.length); return;
+			case "enter": if (this.taskIds.length > 0) this.onAction?.({ type: "drill_task", taskId: this.taskIds[this.cursor] }); return;
+			case "back":  this.onAction?.({ type: "back" }); return;
+			case "help":  this.onAction?.({ type: "help" }); return;
+			case "quit":  this.onAction?.({ type: "quit" }); return;
 		}
 	}
 
@@ -93,7 +93,7 @@ export class StageView implements Component {
 
 		lines.push("");
 		lines.push(horizontalRule(width));
-		lines.push(this.renderFooter());
+		lines.push(renderFooter([["j/k", "nav"], ["⏎/l", "select"], ["h/esc", "back"], ["?", "help"], ["q", "quit"]], { mode: "NORMAL" }));
 		return lines;
 	}
 
@@ -123,15 +123,5 @@ export class StageView implements Component {
 		const maxName = Math.min(25, Math.floor(cols * 0.25));
 		const nameStr = padRight(truncateToWidth(taskId, maxName), maxName);
 		return `[${icon}] ${nameStr}${info}${timeStr}${retryStr}`;
-	}
-
-	private renderFooter(): string {
-		const keys: string[] = [];
-		keys.push(colored("↑↓", FG_CYAN) + " navigate");
-		keys.push(colored("enter", FG_CYAN) + " drill-down");
-		keys.push(colored("esc", FG_GRAY) + " back");
-		keys.push(colored("?", FG_GRAY) + " help");
-		keys.push(colored("q", FG_GRAY) + " quit");
-		return " " + keys.join("  ");
 	}
 }

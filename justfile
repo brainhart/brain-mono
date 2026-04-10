@@ -59,6 +59,14 @@ go-build:
 go-run module="hello-go":
     cd go && ../bin/go run ./{{module}}
 
+# Run the DAST tool against a target
+dast-run target format="text":
+    cd go && ../bin/go run ./dast --target "{{target}}" --format "{{format}}"
+
+# Run the DAST tool with optional auth and skipped checks
+dast-run-advanced target auth="" format="text" skip_checks="":
+    cd go && auth_arg=""; skip_arg=""; if [ -n "{{auth}}" ]; then auth_arg="--auth {{auth}}"; fi; if [ -n "{{skip_checks}}" ]; then skip_arg="--skip-checks {{skip_checks}}"; fi; ../bin/go run ./dast --target "{{target}}" --format "{{format}}" $auth_arg $skip_arg
+
 # Lint the entire Go workspace with go vet
 go-lint:
     cd go && for d in */go.mod; do ../bin/go vet "./${d%/go.mod}/..."; done

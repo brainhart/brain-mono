@@ -34,3 +34,4 @@ export { StageActor, type StageActorMsg, type StageActorOpts } from "./stage-act
 export { DAGSchedulerActor, type DAGSchedulerActorMsg } from "./dag-scheduler-actor.js";
 export { JobRunner, type JobRunnerOpts, type RecoveredJob } from "./job-runner.js";
 export { projectState, type StageState, type TaskState, type JobState } from "./state.js";
+export { createPiExecutor, type PiExecutorOpts } from "./pi-executor.js";

@@ -1,0 +1,7 @@
+{
+  "name": "coding-agent-examples",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Standalone pi-coding-agent SDK and script examples (not loaded as pi package extensions)",
+  "keywords": ["pi-package"]
+}

@@ -5,7 +5,7 @@
   "description": "Personal pi resources: extensions, skills, and prompts",
   "keywords": ["pi-package"],
   "pi": {
-    "extensions": ["./extensions"],
+    "extensions": ["./extensions/hello.ts"],
     "skills": ["./skills"],
     "prompts": ["./prompts"]
   }

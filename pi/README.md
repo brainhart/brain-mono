@@ -11,8 +11,13 @@ pi/
     brain-pi-kit/
       package.json
       extensions/
+        hello.ts
+        …other sample extensions (load with --extension)
       skills/
       prompts/
+    coding-agent-examples/
+      package.json
+      sdk/
 ```
 
 Each package can collocate:

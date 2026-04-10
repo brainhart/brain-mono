@@ -12,6 +12,8 @@ import type {
 	TaskResult,
 	TaskOperatorAction,
 } from "./types.js";
+import type { JobProfile } from "./profiles.js";
+import { singleTaskProfile } from "./profiles.js";
 import { MutableDAG } from "./dag.js";
 import { EventLog } from "./event-log.js";
 import { SessionPoolActor } from "./session-pool-actor.js";
@@ -31,6 +33,11 @@ export type JobRunnerOpts = {
 	 * terminate when the initial DAG is drained.
 	 */
 	interactive?: boolean;
+	/**
+	 * Default profile used by `submitTask()` to expand a user prompt
+	 * into stages and dependencies. Defaults to `singleTaskProfile`.
+	 */
+	profile?: JobProfile;
 };
 
 /**
@@ -46,6 +53,8 @@ export class JobRunner {
 	private readonly concurrency?: number;
 	private readonly isRecovery: boolean;
 	private readonly interactive: boolean;
+	private readonly defaultProfile: JobProfile;
+	private stageCounter = 0;
 
 	constructor(
 		private readonly definition: JobDefinition,
@@ -57,6 +66,7 @@ export class JobRunner {
 		this.concurrency = opts?.concurrency;
 		this.isRecovery = opts?.isRecovery ?? false;
 		this.interactive = opts?.interactive ?? true;
+		this.defaultProfile = opts?.profile ?? singleTaskProfile;
 	}
 
 	async run(): Promise<JobResult> {
@@ -147,6 +157,22 @@ export class JobRunner {
 	 */
 	submit(stages: StageDefinition[], dependencies: StageDependency[] = []): void {
 		this.scheduler?.send({ type: "add_stages", stages, dependencies });
+	}
+
+	/**
+	 * High-level submission: expand a user prompt through a profile to
+	 * generate stages and dependencies, then submit them. If no profile
+	 * is given, uses the runner's default profile.
+	 */
+	submitTask(prompt: string, profile?: JobProfile): void {
+		const p = profile ?? this.defaultProfile;
+		const counter = ++this.stageCounter;
+		const { stages, dependencies } = p.generate(prompt, counter);
+		this.submit(stages, dependencies);
+	}
+
+	getDefaultProfile(): JobProfile {
+		return this.defaultProfile;
 	}
 
 	/**

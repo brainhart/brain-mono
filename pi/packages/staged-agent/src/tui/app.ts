@@ -9,6 +9,8 @@
 import { TUI, ProcessTerminal, type Terminal } from "@mariozechner/pi-tui";
 import type { JobRunner } from "../job-runner.js";
 import type { JobDefinition, StageId, TaskId, TaskDefinition } from "../types.js";
+import type { JobProfile } from "../profiles.js";
+import { builtinProfiles } from "../profiles.js";
 import type { JobState } from "../state.js";
 import { projectState } from "../state.js";
 import { DashboardView } from "./views/dashboard.js";
@@ -20,6 +22,7 @@ import { DagView } from "./views/dag.js";
 import { TranscriptView, parseTranscript } from "./views/transcript.js";
 import { TaskActionMenuView } from "./views/task-actions.js";
 import { TextPromptView } from "./views/text-prompt.js";
+import { ProfilePickerView } from "./views/profile-picker.js";
 
 type ActiveView =
 	| { type: "dashboard"; view: DashboardView }
@@ -35,6 +38,13 @@ export type TuiAppOpts = {
 	cwd?: string;
 	/** When true, enables interactive prompt submission via the TUI. */
 	interactive?: boolean;
+	/**
+	 * Profiles available in the TUI profile picker. Defaults to the
+	 * built-in profiles (single, plan-execute, plan-implement-review).
+	 * Pass an empty array to skip the picker and always use the runner's
+	 * default profile.
+	 */
+	profiles?: JobProfile[];
 };
 
 export class TuiApp {
@@ -44,12 +54,14 @@ export class TuiApp {
 	private readonly runner: JobRunner;
 	private readonly cwd: string;
 	private readonly interactive: boolean;
+	private readonly profiles: JobProfile[];
 	private nextStageNum = 1;
 	private state: JobState;
 	private viewStack: ActiveView[];
 	private helpOverlay: HelpView | undefined;
 	private taskActionOverlay: TaskActionMenuView | undefined;
 	private textPromptOverlay: TextPromptView | undefined;
+	private profilePickerOverlay: ProfilePickerView | undefined;
 	private unsubscribe: (() => void) | undefined;
 	private renderTimer: ReturnType<typeof setInterval> | undefined;
 	private readonly startTime: number;
@@ -62,6 +74,7 @@ export class TuiApp {
 		this.tui = new TUI(this.terminal);
 		this.cwd = opts?.cwd ?? process.cwd();
 		this.interactive = opts?.interactive ?? false;
+		this.profiles = opts?.profiles ?? [];
 		this.startTime = Date.now();
 
 		this.state = {
@@ -128,6 +141,9 @@ export class TuiApp {
 		} else if (this.textPromptOverlay) {
 			this.tui.addChild(this.textPromptOverlay);
 			this.tui.setFocus(this.textPromptOverlay);
+		} else if (this.profilePickerOverlay) {
+			this.tui.addChild(this.profilePickerOverlay);
+			this.tui.setFocus(this.profilePickerOverlay);
 		} else if (this.taskActionOverlay) {
 			this.tui.addChild(this.taskActionOverlay);
 			this.tui.setFocus(this.taskActionOverlay);
@@ -368,8 +384,36 @@ export class TuiApp {
 	}
 
 	private openSubmitPrompt(): void {
+		const profiles = this.availableProfiles;
+		if (profiles.length <= 1) {
+			this.openSubmitTextPrompt(profiles[0] ?? this.runner.getDefaultProfile());
+			return;
+		}
+
+		const picker = new ProfilePickerView(profiles);
+		picker.onAction = (a) => {
+			if (a.type === "cancel") {
+				this.profilePickerOverlay = undefined;
+				this.syncActiveView();
+				this.tui.requestRender();
+				return;
+			}
+			if (a.type === "quit") {
+				this.profilePickerOverlay = undefined;
+				this.stop();
+				return;
+			}
+			this.profilePickerOverlay = undefined;
+			this.openSubmitTextPrompt(a.profile);
+		};
+		this.profilePickerOverlay = picker;
+		this.syncActiveView();
+		this.tui.requestRender();
+	}
+
+	private openSubmitTextPrompt(profile: JobProfile): void {
 		const overlay = new TextPromptView(
-			"Submit new task",
+			`New task · ${profile.name}`,
 			"Describe what you want the agent to do.",
 			"e.g. Refactor the auth module to use JWT",
 		);
@@ -381,22 +425,17 @@ export class TuiApp {
 				return;
 			}
 			this.textPromptOverlay = undefined;
-
-			const stageNum = this.nextStageNum++;
-			const stageId = `task-${stageNum}`;
-			const taskId = `${stageId}-work`;
-			this.runner.submit([{
-				id: stageId,
-				name: a.value.slice(0, 60),
-				tasks: [{ id: taskId, prompt: a.value }],
-			}]);
-
+			this.runner.submitTask(a.value, profile);
 			this.syncActiveView();
 			this.tui.requestRender();
 		};
 		this.textPromptOverlay = overlay;
 		this.syncActiveView();
 		this.tui.requestRender();
+	}
+
+	private get availableProfiles(): JobProfile[] {
+		return this.profiles.length > 0 ? this.profiles : builtinProfiles;
 	}
 
 	private createEventLogView(): EventLogView {

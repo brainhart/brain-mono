@@ -47,6 +47,16 @@ export {
 	type PiTaskExecutorOpts,
 } from "./pi-runtime.js";
 
+export {
+	type JobProfile,
+	type ProfileStages,
+	singleTaskProfile,
+	planExecuteProfile,
+	planImplementReviewProfile,
+	builtinProfiles,
+	getProfile,
+} from "./profiles.js";
+
 export { TuiApp, type TuiAppOpts } from "./tui/app.js";
 export { DashboardView, type DashboardAction } from "./tui/views/dashboard.js";
 export { StageView, type StageViewAction } from "./tui/views/stage.js";
@@ -56,3 +66,4 @@ export { EventLogView, type EventLogViewAction } from "./tui/views/event-log.js"
 export { DagView, type DagViewAction } from "./tui/views/dag.js";
 export { TranscriptView, type TranscriptViewAction, parseTranscript } from "./tui/views/transcript.js";
 export { ProgressFeed } from "./tui/views/progress-feed.js";
+export { ProfilePickerView, type ProfilePickerAction } from "./tui/views/profile-picker.js";

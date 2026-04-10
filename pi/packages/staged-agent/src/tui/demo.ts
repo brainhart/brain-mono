@@ -3,8 +3,13 @@
  * Interactive demo for the staged-agent TUI.
  *
  * Starts with an empty job in interactive mode — no pre-seeded stages.
- * The user submits tasks through the TUI prompt (n key). Each
- * submission creates a new stage that runs a simulated executor.
+ * The user submits tasks through the TUI prompt (n key), choosing a
+ * profile that determines how many stages the task is broken into.
+ *
+ * Profiles:
+ *   - Single task — one stage, one task, immediate execution
+ *   - Plan → Execute — plan first, then execute based on the plan
+ *   - Plan → Implement → Review — plan, implement, self-review loop
  *
  * Demonstrates the coding-agent workflow where the system is dropped
  * into a project and the user decides what to do next.
@@ -54,13 +59,20 @@ function mockStreamingExecutor() {
 
 		const inputTokens = 500 + Math.floor(Math.random() * 1000);
 		const outputTokens = 200 + Math.floor(Math.random() * 500);
+
+		const isReview = task.id.includes("review");
+		const signals: Record<string, unknown> = {
+			model: "mock-gpt-5",
+			usage: { inputTokens, outputTokens, totalTokens: inputTokens + outputTokens },
+		};
+		if (isReview) {
+			signals.approved = true;
+		}
+
 		return {
 			status: "success",
 			summary: `Completed: ${task.prompt.slice(0, 80)}`,
-			signals: {
-				model: "mock-gpt-5",
-				usage: { inputTokens, outputTokens, totalTokens: inputTokens + outputTokens },
-			},
+			signals,
 		};
 	};
 }

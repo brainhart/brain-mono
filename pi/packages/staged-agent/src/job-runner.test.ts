@@ -990,4 +990,56 @@ describe("JobRunner — interactive mode", () => {
 		assert.ok(state.stages.has("s1"));
 		assert.equal(state.stages.get("s1")?.status, "completed");
 	});
+
+	it("submitTask expands a prompt through the default profile", async () => {
+		const def: JobDefinition = {
+			stages: [],
+			dependencies: [],
+		};
+		const prompts: string[] = [];
+		const executor: TaskExecutor = async (task) => {
+			prompts.push(task.prompt);
+			return { status: "success", summary: "done" };
+		};
+
+		const runner = new JobRunner(def, executor, { interactive: true });
+		const promise = runner.run();
+
+		await new Promise((r) => setTimeout(r, 50));
+		runner.submitTask("Fix the login bug");
+		await new Promise((r) => setTimeout(r, 200));
+
+		runner.finish();
+		const result = await promise;
+
+		assert.equal(result.status, "completed");
+		assert.ok(prompts.some((p) => p.includes("Fix the login bug")));
+	});
+
+	it("submitTask uses a custom profile when provided", async () => {
+		const { planExecuteProfile } = await import("./profiles.js");
+		const def: JobDefinition = {
+			stages: [],
+			dependencies: [],
+		};
+		const taskIds: string[] = [];
+		const executor: TaskExecutor = async (task) => {
+			taskIds.push(task.id);
+			return { status: "success", summary: "done" };
+		};
+
+		const runner = new JobRunner(def, executor, { interactive: true });
+		const promise = runner.run();
+
+		await new Promise((r) => setTimeout(r, 50));
+		runner.submitTask("Add dark mode", planExecuteProfile);
+		await new Promise((r) => setTimeout(r, 300));
+
+		runner.finish();
+		const result = await promise;
+
+		assert.equal(result.status, "completed");
+		assert.ok(taskIds.some((id) => id.includes("plan")));
+		assert.ok(taskIds.some((id) => id.includes("execute")));
+	});
 });

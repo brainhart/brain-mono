@@ -1,15 +1,14 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { JobRunner } from "./job-runner.js";
-import { InMemorySessionPool } from "./session-pool.js";
 import type {
 	JobDefinition,
 	TaskExecutor,
 	StageDefinition,
-	StageDependency,
 	TaskResult,
 	DAGMutator,
 } from "./types.js";
+import { projectState } from "./state.js";
 
 function makeStage(
 	id: string,
@@ -30,25 +29,25 @@ const successExecutor: TaskExecutor = async () => ({
 	summary: "done",
 });
 
-describe("JobRunner", () => {
+describe("JobRunner (actor-based)", () => {
 	it("runs a single-stage job", async () => {
 		const def: JobDefinition = {
 			stages: [makeStage("plan")],
 			dependencies: [],
 		};
-		const result = await new JobRunner(
-			def,
-			new InMemorySessionPool(),
-			successExecutor,
-		).run();
+		const result = await new JobRunner(def, successExecutor).run();
 		assert.equal(result.status, "completed");
 		assert.equal(result.stageResults.size, 1);
 		assert.ok(result.stageResults.has("plan"));
 	});
 
-	it("runs a linear chain of stages", async () => {
+	it("runs a linear chain of stages in order", async () => {
 		const def: JobDefinition = {
-			stages: [makeStage("plan"), makeStage("implement"), makeStage("review")],
+			stages: [
+				makeStage("plan"),
+				makeStage("implement"),
+				makeStage("review"),
+			],
 			dependencies: [
 				{ parentStageId: "plan", childStageId: "implement" },
 				{ parentStageId: "implement", childStageId: "review" },
@@ -59,11 +58,7 @@ describe("JobRunner", () => {
 			order.push(task.id);
 			return { status: "success", summary: "done" };
 		};
-		const result = await new JobRunner(
-			def,
-			new InMemorySessionPool(),
-			executor,
-		).run();
+		const result = await new JobRunner(def, executor).run();
 		assert.equal(result.status, "completed");
 		assert.deepEqual(order, [
 			"plan-task",
@@ -72,7 +67,7 @@ describe("JobRunner", () => {
 		]);
 	});
 
-	it("runs parallel stages", async () => {
+	it("runs parallel stages (fan-out / fan-in)", async () => {
 		const def: JobDefinition = {
 			stages: [
 				makeStage("plan"),
@@ -87,21 +82,12 @@ describe("JobRunner", () => {
 				{ parentStageId: "impl-b", childStageId: "merge" },
 			],
 		};
-		const started = new Set<string>();
-		const executor: TaskExecutor = async (task) => {
-			started.add(task.id);
-			return { status: "success", summary: "done" };
-		};
-		const result = await new JobRunner(
-			def,
-			new InMemorySessionPool(),
-			executor,
-		).run();
+		const result = await new JobRunner(def, successExecutor).run();
 		assert.equal(result.status, "completed");
 		assert.equal(result.stageResults.size, 4);
 	});
 
-	it("reports failure when a stage fails", async () => {
+	it("reports failure when a stage fails beyond retries", async () => {
 		const def: JobDefinition = {
 			stages: [makeStage("plan"), makeStage("implement")],
 			dependencies: [
@@ -112,20 +98,17 @@ describe("JobRunner", () => {
 			if (task.id === "implement-task") throw new Error("compile error");
 			return { status: "success", summary: "done" };
 		};
-		const result = await new JobRunner(
-			def,
-			new InMemorySessionPool(),
-			executor,
-			{ },
-		).run();
+		const result = await new JobRunner(def, executor).run();
 		assert.equal(result.status, "failed");
 		assert.ok(result.error);
 	});
 
-	it("retries a stage on failure with maxStageAttempts", async () => {
+	it("retries stages with maxStageAttempts", async () => {
 		let attemptCount = 0;
 		const def: JobDefinition = {
-			stages: [makeStage("flaky", ["t1"], { maxStageAttempts: 3 })],
+			stages: [
+				makeStage("flaky", ["t1"], { maxStageAttempts: 3 }),
+			],
 			dependencies: [],
 		};
 		const executor: TaskExecutor = async () => {
@@ -133,13 +116,27 @@ describe("JobRunner", () => {
 			if (attemptCount < 3) throw new Error("transient");
 			return { status: "success", summary: "done" };
 		};
-		const result = await new JobRunner(
-			def,
-			new InMemorySessionPool(),
-			executor,
-		).run();
+		const result = await new JobRunner(def, executor).run();
 		assert.equal(result.status, "completed");
 		assert.equal(attemptCount, 3);
+	});
+
+	it("retries tasks within a stage", async () => {
+		let callCount = 0;
+		const def: JobDefinition = {
+			stages: [
+				makeStage("s1", ["t1"], { maxTaskAttempts: 3 }),
+			],
+			dependencies: [],
+		};
+		const executor: TaskExecutor = async () => {
+			callCount++;
+			if (callCount < 3) throw new Error("flaky");
+			return { status: "success", summary: "ok" };
+		};
+		const result = await new JobRunner(def, executor).run();
+		assert.equal(result.status, "completed");
+		assert.equal(callCount, 3);
 	});
 
 	it("supports transition functions for adaptive replanning", async () => {
@@ -172,11 +169,7 @@ describe("JobRunner", () => {
 			return { status: "success", summary: "done" };
 		};
 
-		const result = await new JobRunner(
-			def,
-			new InMemorySessionPool(),
-			executor,
-		).run();
+		const result = await new JobRunner(def, executor).run();
 		assert.equal(result.status, "completed");
 		assert.ok(result.stageResults.has("finalize"));
 		assert.deepEqual(order, [
@@ -186,16 +179,12 @@ describe("JobRunner", () => {
 		]);
 	});
 
-	it("emits events and can replay state from the log", async () => {
+	it("emits events and state can be projected from the log", async () => {
 		const def: JobDefinition = {
 			stages: [makeStage("plan")],
 			dependencies: [],
 		};
-		const runner = new JobRunner(
-			def,
-			new InMemorySessionPool(),
-			successExecutor,
-		);
+		const runner = new JobRunner(def, successExecutor);
 		await runner.run();
 		const events = runner.getEventLog().getEvents();
 		assert.ok(events.length > 0);
@@ -206,5 +195,135 @@ describe("JobRunner", () => {
 		assert.ok(types.includes("stage_completed"));
 		assert.ok(types.includes("task_started"));
 		assert.ok(types.includes("task_completed"));
+
+		const state = projectState(events);
+		assert.equal(state.status, "completed");
+		assert.equal(state.stages.get("plan")?.status, "completed");
+	});
+
+	it("propagates failure to dependent stages", async () => {
+		const def: JobDefinition = {
+			stages: [
+				makeStage("a"),
+				makeStage("b"),
+				makeStage("c"),
+			],
+			dependencies: [
+				{ parentStageId: "a", childStageId: "b" },
+				{ parentStageId: "b", childStageId: "c" },
+			],
+		};
+		const executor: TaskExecutor = async (task) => {
+			if (task.id === "a-task") throw new Error("fail");
+			return { status: "success", summary: "done" };
+		};
+		const result = await new JobRunner(def, executor).run();
+		assert.equal(result.status, "failed");
+		assert.ok(result.error?.includes("a"));
+	});
+
+	it("handles multi-task stages with all-policy", async () => {
+		const def: JobDefinition = {
+			stages: [
+				makeStage("review", ["r1", "r2", "r3"]),
+			],
+			dependencies: [],
+		};
+		let count = 0;
+		const executor: TaskExecutor = async () => {
+			count++;
+			return { status: "success", summary: `review ${count}` };
+		};
+		const result = await new JobRunner(def, executor).run();
+		assert.equal(result.status, "completed");
+		assert.equal(count, 3);
+		assert.equal(result.stageResults.get("review")?.length, 3);
+	});
+
+	it("completes with first_success policy on first passing task", async () => {
+		const def: JobDefinition = {
+			stages: [
+				makeStage("race", ["fast", "slow"], {
+					completionPolicy: { type: "first_success" },
+				}),
+			],
+			dependencies: [],
+		};
+		const executor: TaskExecutor = async (task) => {
+			if (task.id === "slow") {
+				return { status: "failure", summary: "nah" };
+			}
+			return { status: "success", summary: "winner" };
+		};
+		const result = await new JobRunner(def, executor).run();
+		assert.equal(result.status, "completed");
+	});
+
+	it("evaluates quorum policy", async () => {
+		let idx = 0;
+		const def: JobDefinition = {
+			stages: [
+				makeStage("votes", ["v1", "v2", "v3"], {
+					completionPolicy: { type: "quorum", n: 2 },
+				}),
+			],
+			dependencies: [],
+		};
+		const executor: TaskExecutor = async () => {
+			idx++;
+			if (idx <= 2) return { status: "success", summary: "yes" };
+			return { status: "failure", summary: "no" };
+		};
+		const result = await new JobRunner(def, executor).run();
+		assert.equal(result.status, "completed");
+	});
+
+	it("preserves partial results on failure", async () => {
+		const def: JobDefinition = {
+			stages: [
+				makeStage("ok-stage"),
+				makeStage("bad-stage"),
+			],
+			dependencies: [
+				{ parentStageId: "ok-stage", childStageId: "bad-stage" },
+			],
+		};
+		const executor: TaskExecutor = async (task) => {
+			if (task.id === "bad-stage-task") throw new Error("boom");
+			return { status: "success", summary: "ok" };
+		};
+		const result = await new JobRunner(def, executor).run();
+		assert.equal(result.status, "failed");
+		assert.ok(result.stageResults.has("ok-stage"));
+	});
+
+	it("cancels a running job", async () => {
+		const def: JobDefinition = {
+			stages: [makeStage("slow")],
+			dependencies: [],
+		};
+		const executor: TaskExecutor = async () => {
+			await new Promise((r) => setTimeout(r, 5000));
+			return { status: "success", summary: "done" };
+		};
+		const runner = new JobRunner(def, executor);
+		const promise = runner.run();
+
+		await new Promise((r) => setTimeout(r, 50));
+		runner.cancel();
+
+		const result = await promise;
+		assert.equal(result.status, "failed");
+		assert.ok(result.error?.includes("cancel"));
+	});
+
+	it("handles empty job (zero stages)", async () => {
+		const def: JobDefinition = {
+			stages: [],
+			dependencies: [],
+		};
+		const result = await new JobRunner(def, successExecutor).run();
+		assert.equal(result.status, "completed");
+		assert.equal(result.stageResults.size, 0);
 	});
 });

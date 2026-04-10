@@ -6,30 +6,29 @@ import type {
 	StageId,
 	TaskExecutor,
 	TaskResult,
-	SessionPool,
 } from "./types.js";
 import { MutableDAG } from "./dag.js";
 import { EventLog } from "./event-log.js";
-import { DAGScheduler } from "./dag-scheduler.js";
-import { TaskRunner } from "./task-runner.js";
+import { SessionPoolActor } from "./session-pool-actor.js";
+import { DAGSchedulerActor } from "./dag-scheduler-actor.js";
 
 export type JobRunnerOpts = {
 	eventLogPath?: string;
+	concurrency?: number;
 };
 
 /**
- * Top-level entry point for executing a Job. Owns the lifecycle of a
- * single job: builds the DAG, wires up the scheduler, drives the event
- * loop, and exposes results.
+ * Top-level entry point. Creates the actor system (SessionPoolActor +
+ * DAGSchedulerActor), sends the Start message, and awaits completion.
  */
 export class JobRunner {
-	private scheduler: DAGScheduler | undefined;
+	private scheduler: DAGSchedulerActor | undefined;
+	private pool: SessionPoolActor | undefined;
 	private readonly log: EventLog;
 	readonly jobId: JobId;
 
 	constructor(
 		private readonly definition: JobDefinition,
-		private readonly pool: SessionPool,
 		private readonly executor: TaskExecutor,
 		opts?: JobRunnerOpts,
 	) {
@@ -43,17 +42,22 @@ export class JobRunner {
 			this.definition.dependencies,
 		);
 
-		const runner = new TaskRunner(this.pool, this.executor, this.log);
-		this.scheduler = new DAGScheduler(
+		this.pool = new SessionPoolActor(
+			/* concurrency — default Infinity for v0 */
+		);
+		this.scheduler = new DAGSchedulerActor(
 			this.jobId,
 			dag,
-			runner,
+			this.executor,
+			this.pool.ref(),
 			this.log,
 		);
 
+		this.scheduler.send({ type: "start" });
+
 		try {
 			const stageResults: Map<StageId, TaskResult[]> =
-				await this.scheduler.start();
+				await this.scheduler.completion.promise;
 
 			return {
 				jobId: this.jobId,
@@ -64,12 +68,17 @@ export class JobRunner {
 			return {
 				jobId: this.jobId,
 				status: "failed",
-				stageResults: new Map(),
+				stageResults: this.scheduler.getStageResults(),
 				error: err instanceof Error ? err.message : String(err),
 			};
 		} finally {
+			this.pool.send({ type: "dispose" });
 			this.log.close();
 		}
+	}
+
+	cancel(): void {
+		this.scheduler?.send({ type: "cancel" });
 	}
 
 	getEventLog(): EventLog {

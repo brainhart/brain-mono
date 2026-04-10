@@ -88,9 +88,3 @@ export type TaskExecutor = (
 	task: TaskDefinition,
 	sessionId: SessionId,
 ) => Promise<TaskResult>;
-
-export interface SessionPool {
-	acquire(): Promise<SessionId>;
-	release(sessionId: SessionId): Promise<void>;
-	dispose(): Promise<void>;
-}

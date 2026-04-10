@@ -152,6 +152,7 @@ export class TaskActor extends Actor<TaskActorMsg> {
 		const self = this.ref();
 
 		const onProgress = (progress: import("./types.js").TaskProgress) => {
+			if (this.phase !== "executing") return;
 			this.log.append({
 				type: "task_progress",
 				jobId: this.opts.jobId,
@@ -278,6 +279,19 @@ export class TaskActor extends Actor<TaskActorMsg> {
 
 	private fail(error: string): void {
 		this.abortController?.abort();
+
+		if (this.phase !== "idle") {
+			this.log.append({
+				type: "task_failed",
+				jobId: this.opts.jobId,
+				stageId: this.opts.stageId,
+				taskId: this.opts.taskId,
+				taskAttemptId: this.opts.taskAttemptId,
+				error,
+				timestamp: Date.now(),
+			});
+		}
+
 		this.parent.send({
 			type: "task_failed",
 			taskId: this.opts.taskId,

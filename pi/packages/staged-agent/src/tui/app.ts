@@ -147,7 +147,7 @@ export class TuiApp {
 				break;
 			}
 			case "pause":
-				this.runner.cancel();
+				this.runner.pause("Paused by user");
 				break;
 			case "resume":
 				this.runner.resume();

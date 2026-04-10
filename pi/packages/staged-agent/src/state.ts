@@ -276,12 +276,14 @@ export function projectState(events: readonly RuntimeEvent[]): JobState {
 				}
 				stageResults.get(sid)!.push(event.result);
 
-				const usage = event.result.signals?.usage as Record<string, number> | undefined;
-				if (usage) {
-					tokenUsage.inputTokens += usage.inputTokens ?? usage.input_tokens ?? 0;
-					tokenUsage.outputTokens += usage.outputTokens ?? usage.output_tokens ?? 0;
-					tokenUsage.totalTokens += usage.totalTokens ?? usage.total_tokens
-						?? ((usage.inputTokens ?? usage.input_tokens ?? 0) + (usage.outputTokens ?? usage.output_tokens ?? 0));
+				if (event.result.signals?.usage && typeof event.result.signals.usage === "object") {
+					const u = event.result.signals.usage as Record<string, unknown>;
+					const inp = Number(u.inputTokens ?? u.input_tokens ?? 0) || 0;
+					const out = Number(u.outputTokens ?? u.output_tokens ?? 0) || 0;
+					const tot = Number(u.totalTokens ?? u.total_tokens ?? 0) || (inp + out);
+					tokenUsage.inputTokens += inp;
+					tokenUsage.outputTokens += out;
+					tokenUsage.totalTokens += tot;
 				}
 				break;
 			}

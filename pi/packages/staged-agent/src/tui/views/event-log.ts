@@ -42,8 +42,8 @@ export class EventLogView implements Component {
 			this.scrollOffset = Math.max(0, this.scrollOffset - 1);
 			this.autoScroll = false;
 		} else if (matchesKey(data, "down") || matchesKey(data, "j")) {
-			this.scrollOffset = Math.min(this.events.length - 1, this.scrollOffset + 1);
-			if (this.scrollOffset >= this.events.length - 10) this.autoScroll = true;
+			this.scrollOffset = Math.min(Math.max(0, this.events.length - 1), this.scrollOffset + 1);
+			if (this.events.length === 0 || this.scrollOffset >= this.events.length - 10) this.autoScroll = true;
 		} else if (matchesKey(data, "g")) {
 			this.scrollOffset = Math.max(0, this.events.length - 10);
 			this.autoScroll = true;

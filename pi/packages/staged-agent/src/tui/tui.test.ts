@@ -232,14 +232,15 @@ describe("TaskView", () => {
 		assert.ok(plain.includes("Auth done"), "should show result summary");
 	});
 
-	it("renders pending task without result", () => {
+	it("renders running task without result", () => {
 		const def = makeDefinition();
 		const taskDef = def.stages[1].tasks[1]; // impl-t2
 		const view = new TaskView("impl-t2", taskDef);
 		view.setState(makeState());
 		const output = view.render(80).join("\n");
 		const plain = stripAnsi(output);
-		assert.ok(plain.includes("pending"), "should show pending");
+		assert.ok(plain.includes("running"), "should show running status");
+		assert.ok(plain.includes("Live output"), "should show streaming progress");
 	});
 
 	it("emits back on escape", () => {
@@ -322,6 +323,140 @@ describe("EventLog.subscribe", () => {
 		log.subscribe(() => { throw new Error("boom"); });
 		log.append({ type: "job_submitted", jobId: "j1", stageIds: [], timestamp: 1 });
 		assert.equal(log.getEvents().length, 1);
+		log.close();
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Hardening tests
+// ---------------------------------------------------------------------------
+
+describe("EventLogView edge cases", () => {
+	it("handles scroll with zero events", async () => {
+		const { EventLogView } = await import("./views/event-log.js");
+		const view = new EventLogView();
+		view.setEvents([]);
+
+		view.handleInput("\x1b[B"); // down arrow with 0 events
+		const output = view.render(80).join("\n");
+		const plain = stripAnsi(output);
+		assert.ok(plain.includes("No events yet"));
+	});
+});
+
+describe("projectState hardening", () => {
+	it("aggregates token usage from signals.usage", async () => {
+		const { projectState } = await import("../state.js");
+		const events = [
+			{ type: "job_submitted" as const, jobId: "j", stageIds: ["s"], timestamp: 1 },
+			{ type: "stage_submitted" as const, jobId: "j", stageId: "s", timestamp: 2 },
+			{ type: "task_started" as const, jobId: "j", stageId: "s", taskId: "t", taskAttemptId: "t:1", stageAttemptId: "s:1", attemptNumber: 1, timestamp: 3 },
+			{ type: "task_completed" as const, jobId: "j", stageId: "s", taskId: "t", taskAttemptId: "t:1", result: { status: "success" as const, summary: "ok", signals: { usage: { inputTokens: 100, outputTokens: 50 } } }, timestamp: 4 },
+		];
+		const state = projectState(events);
+		assert.equal(state.tokenUsage.inputTokens, 100);
+		assert.equal(state.tokenUsage.outputTokens, 50);
+		assert.equal(state.tokenUsage.totalTokens, 150);
+	});
+
+	it("handles malformed usage gracefully", async () => {
+		const { projectState } = await import("../state.js");
+		const events = [
+			{ type: "job_submitted" as const, jobId: "j", stageIds: ["s"], timestamp: 1 },
+			{ type: "task_started" as const, jobId: "j", stageId: "s", taskId: "t", taskAttemptId: "t:1", stageAttemptId: "s:1", attemptNumber: 1, timestamp: 2 },
+			{ type: "task_completed" as const, jobId: "j", stageId: "s", taskId: "t", taskAttemptId: "t:1", result: { status: "success" as const, summary: "ok", signals: { usage: "not-an-object" } }, timestamp: 3 },
+		];
+		const state = projectState(events);
+		assert.equal(state.tokenUsage.totalTokens, 0);
+	});
+
+	it("tracks progress ring buffer", async () => {
+		const { projectState } = await import("../state.js");
+		const events: import("../events.js").RuntimeEvent[] = [
+			{ type: "job_submitted", jobId: "j", stageIds: ["s"], timestamp: 1 },
+			{ type: "task_started", jobId: "j", stageId: "s", taskId: "t", taskAttemptId: "t:1", stageAttemptId: "s:1", attemptNumber: 1, timestamp: 2 },
+		];
+		for (let i = 0; i < 60; i++) {
+			events.push({ type: "task_progress", jobId: "j", stageId: "s", taskId: "t", taskAttemptId: "t:1", progress: { kind: "text", text: `line ${i}` }, timestamp: 3 + i });
+		}
+		const state = projectState(events);
+		const ts = state.tasks.get("t")!;
+		assert.equal(ts.progressLines.length, 50);
+		assert.ok(ts.progressLines[0].includes("line 10"));
+	});
+
+	it("tracks pause reason and resume input", async () => {
+		const { projectState } = await import("../state.js");
+		type RE = import("../events.js").RuntimeEvent;
+		const events: RE[] = [
+			{ type: "job_submitted", jobId: "j", stageIds: ["s"], timestamp: 1 },
+			{ type: "job_paused", jobId: "j", reason: "needs approval", timestamp: 2 },
+		];
+		let state = projectState(events);
+		assert.equal(state.pauseReason, "needs approval");
+		assert.equal(state.status, "paused");
+
+		events.push({ type: "job_resumed", jobId: "j", input: "approved", timestamp: 3 });
+		state = projectState(events);
+		assert.equal(state.lastResumeInput, "approved");
+		assert.equal(state.pauseReason, undefined);
+		assert.equal(state.status, "running");
+	});
+
+	it("handles task_completed without prior task_started", async () => {
+		const { projectState } = await import("../state.js");
+		const events = [
+			{ type: "job_submitted" as const, jobId: "j", stageIds: ["s"], timestamp: 1 },
+			{ type: "task_completed" as const, jobId: "j", stageId: "s", taskId: "orphan", taskAttemptId: "o:1", result: { status: "success" as const, summary: "ok" }, timestamp: 2 },
+		];
+		const state = projectState(events);
+		assert.equal(state.tasks.has("orphan"), false);
+		assert.ok(state.stageResults.get("s"));
+	});
+});
+
+describe("StageActor predicate safety", () => {
+	it("handles throwing predicate fn without crashing", async () => {
+		const { StageActor } = await import("../stage-actor.js");
+		const { EventLog } = await import("../event-log.js");
+		const { Deferred } = await import("../actor.js");
+
+		const log = new EventLog();
+		const parentMessages: Array<{ type: string }> = [];
+		const parentRef = {
+			send: (msg: { type: string }) => parentMessages.push(msg),
+		};
+		const poolRef = {
+			send: (_msg: unknown) => {},
+		};
+
+		const throwingPolicy = {
+			type: "predicate" as const,
+			fn: () => { throw new Error("kaboom"); },
+		};
+
+		const actor = new StageActor(
+			"s1", "s1:attempt:1", "j1",
+			[{ id: "t1", prompt: "test" }],
+			async (_task, _sid, _signal) => ({ status: "success" as const, summary: "ok" }),
+			poolRef as any,
+			parentRef as any,
+			log,
+			{ completionPolicy: throwingPolicy },
+		);
+
+		const sessionDeferred = new Deferred<string>();
+		poolRef.send = (msg: any) => {
+			if (msg.type === "acquire") {
+				msg.deferred.resolve("ses-1");
+			}
+		};
+
+		actor.send({ type: "run" });
+		await new Promise((r) => setTimeout(r, 100));
+
+		const hasResponse = parentMessages.some(m => m.type === "stage_completed" || m.type === "stage_failed");
+		assert.ok(hasResponse, "StageActor should report completion even with throwing predicate");
 		log.close();
 	});
 });

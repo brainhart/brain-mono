@@ -196,7 +196,11 @@ export class StageActor extends Actor<StageActorMsg> {
 				policyMet = successful.length >= 1;
 				break;
 			case "predicate":
-				policyMet = allDone && p.fn(this.results);
+				try {
+					policyMet = allDone && p.fn(this.results);
+				} catch {
+					policyMet = false;
+				}
 				break;
 		}
 

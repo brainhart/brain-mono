@@ -85,6 +85,14 @@ export class JobRunner {
 		}
 	}
 
+	/**
+	 * Pause the job. Running tasks continue to completion but no new
+	 * stages will be scheduled until `resume()` is called.
+	 */
+	pause(reason?: string): void {
+		this.scheduler?.send({ type: "pause", reason });
+	}
+
 	cancel(): void {
 		this.scheduler?.send({ type: "cancel" });
 	}

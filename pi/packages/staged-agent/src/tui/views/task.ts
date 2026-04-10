@@ -163,6 +163,12 @@ export class TaskView implements Component {
 
 		lines.push(horizontalRule(width));
 		lines.push(this.renderFooter());
+
+		const maxScroll = Math.max(0, lines.length - 1);
+		if (this.scrollOffset > maxScroll) this.scrollOffset = maxScroll;
+		if (this.scrollOffset > 0) {
+			return lines.slice(this.scrollOffset);
+		}
 		return lines;
 	}
 

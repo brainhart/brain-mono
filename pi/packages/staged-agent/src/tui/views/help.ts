@@ -17,7 +17,7 @@ const HELP_CONTENT = [
 	["l", "Toggle event log"],
 	["g", "Jump to latest (event log)"],
 	["", ""],
-	["?", "Toggle this help overlay"],
+	["?", "Close this help overlay"],
 	["q", "Quit TUI (job continues in background)"],
 ] as const;
 

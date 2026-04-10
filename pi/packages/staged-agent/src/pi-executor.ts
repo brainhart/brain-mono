@@ -143,7 +143,7 @@ function parseAgentOutput(stdout: string): TaskResult {
 	for (let i = lines.length - 1; i >= 0; i--) {
 		try {
 			const parsed = JSON.parse(lines[i]);
-			if (parsed.type === "agent_end") {
+			if (parsed.type === "agent_end" && Array.isArray(parsed.messages)) {
 				agentEnd = parsed as PiAgentEndEvent;
 				break;
 			}

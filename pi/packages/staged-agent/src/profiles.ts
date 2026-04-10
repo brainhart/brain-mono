@@ -135,6 +135,7 @@ export const planImplementReviewProfile: JobProfile = {
 		const planId = stageId("plan", counter);
 		const implId = stageId("impl", counter);
 		const reviewId = stageId("review", counter);
+		const doneId = stageId("done", counter);
 
 		const planToImpl: TransitionFn = (results, dag) => {
 			const planSummary = results.map((r) => r.summary).join("\n");
@@ -164,6 +165,7 @@ export const planImplementReviewProfile: JobProfile = {
 					};
 				}
 				dag.resetStage(implId);
+				dag.resetStage(reviewId);
 			}
 		};
 
@@ -212,11 +214,16 @@ export const planImplementReviewProfile: JobProfile = {
 						].join("\n"),
 					}],
 				},
+				{
+					id: doneId,
+					name: "Done",
+					tasks: [],
+				},
 			],
 			dependencies: [
 				{ parentStageId: planId, childStageId: implId, transition: planToImpl },
 				{ parentStageId: implId, childStageId: reviewId },
-				{ parentStageId: reviewId, childStageId: implId, transition: reviewTransition },
+				{ parentStageId: reviewId, childStageId: doneId, transition: reviewTransition },
 			],
 		};
 	},

@@ -141,6 +141,15 @@ export class EventLogView implements Component {
 				if (event.resetStages.length > 0) detail += colored(` ↻${event.resetStages.join(",")}`, FG_YELLOW);
 				return detail;
 			}
+			case "stages_added":
+				return colored("stages_added", FG_GREEN) + colored(` +${event.stageIds.join(", ")}`, FG_WHITE)
+					+ (event.dependencyEdges.length > 0
+						? colored(` (${event.dependencyEdges.length} deps)`, FG_GRAY)
+						: "");
+			case "job_idle":
+				return colored("job_idle", FG_YELLOW, BOLD);
+			case "job_finished":
+				return colored("job_finished", FG_CYAN);
 			default:
 				return colored((event as { type: string }).type, FG_GRAY);
 		}

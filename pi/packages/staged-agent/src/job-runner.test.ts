@@ -1245,4 +1245,77 @@ describe("JobRunner — hardening", () => {
 			assert.ok(result.stageResults.has(`rapid-${i}`), `Missing rapid-${i}`);
 		}
 	});
+
+	it("stale task failure after retry-with-note does not corrupt stage", async () => {
+		const def: JobDefinition = {
+			stages: [
+				makeStage("s1", ["t1"], { maxTaskAttempts: 3 }),
+			],
+			dependencies: [],
+		};
+
+		let callCount = 0;
+		const executor: TaskExecutor = async (task) => {
+			callCount++;
+			if (callCount === 1) {
+				await new Promise((r) => setTimeout(r, 150));
+				return { status: "failure", summary: "slow fail" };
+			}
+			return { status: "success", summary: "ok" };
+		};
+
+		const runner = batchRunner(def, executor);
+		const runPromise = runner.run();
+
+		await new Promise((r) => setTimeout(r, 50));
+		runner.retryTaskWithNote("t1", "s1", "try harder");
+
+		const result = await runPromise;
+		assert.equal(result.status, "completed");
+		assert.equal(callCount, 2);
+	});
+});
+
+describe("JobRunner — profile review loop", () => {
+	it("planImplementReviewProfile review loop actually re-runs review", async () => {
+		const { planImplementReviewProfile } = await import("./profiles.js");
+		const def: JobDefinition = {
+			stages: [],
+			dependencies: [],
+		};
+		let implCount = 0;
+		let reviewCount = 0;
+		const taskIds: string[] = [];
+
+		const executor: TaskExecutor = async (task) => {
+			taskIds.push(task.id);
+			if (task.id.includes("review")) {
+				reviewCount++;
+				return {
+					status: "success",
+					summary: reviewCount >= 2 ? "looks good" : "needs changes",
+					signals: { approved: reviewCount >= 2 },
+				};
+			}
+			if (task.id.includes("impl")) {
+				implCount++;
+				return { status: "success", summary: `impl attempt ${implCount}` };
+			}
+			return { status: "success", summary: "done" };
+		};
+
+		const runner = new JobRunner(def, executor, { interactive: true });
+		const promise = runner.run();
+
+		await new Promise((r) => setTimeout(r, 50));
+		runner.submitTask("test task", planImplementReviewProfile);
+		await new Promise((r) => setTimeout(r, 5000));
+
+		runner.finish();
+		const result = await promise;
+
+		assert.equal(result.status, "completed");
+		assert.ok(reviewCount >= 2, `Review should have run at least twice, ran ${reviewCount} times`);
+		assert.ok(implCount >= 2, `Impl should have run at least twice, ran ${implCount} times`);
+	});
 });

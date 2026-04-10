@@ -57,15 +57,16 @@ describe("planExecuteProfile", () => {
 });
 
 describe("planImplementReviewProfile", () => {
-	it("generates three stages with dependencies", () => {
+	it("generates four stages (plan, impl, review, done) with dependencies", () => {
 		const result = planImplementReviewProfile.generate("Refactor auth", 1);
-		assert.equal(result.stages.length, 3);
+		assert.equal(result.stages.length, 4);
 		assert.ok(result.dependencies.length >= 2);
 
 		const stageNames = result.stages.map((s) => s.name);
 		assert.ok(stageNames.includes("Plan"));
 		assert.ok(stageNames.includes("Implement"));
 		assert.ok(stageNames.includes("Review"));
+		assert.ok(stageNames.includes("Done"));
 	});
 
 	it("impl stage has maxStageAttempts for retry loop", () => {
@@ -75,17 +76,17 @@ describe("planImplementReviewProfile", () => {
 		assert.ok((impl.maxStageAttempts ?? 0) > 1);
 	});
 
-	it("review → impl dependency has a transition (reset loop)", () => {
+	it("review → done dependency has a transition (reset loop)", () => {
 		const result = planImplementReviewProfile.generate("Refactor auth", 1);
 		const reviewStage = result.stages.find((s) => s.name === "Review");
-		const implStage = result.stages.find((s) => s.name === "Implement");
-		assert.ok(reviewStage && implStage);
+		const doneStage = result.stages.find((s) => s.name === "Done");
+		assert.ok(reviewStage && doneStage);
 
-		const reviewToImpl = result.dependencies.find(
-			(d) => d.parentStageId === reviewStage.id && d.childStageId === implStage.id,
+		const reviewToDone = result.dependencies.find(
+			(d) => d.parentStageId === reviewStage.id && d.childStageId === doneStage.id,
 		);
-		assert.ok(reviewToImpl);
-		assert.ok(reviewToImpl.transition);
+		assert.ok(reviewToDone);
+		assert.ok(reviewToDone.transition);
 	});
 });
 

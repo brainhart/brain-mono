@@ -133,4 +133,13 @@ describe("MutableDAG", () => {
 		assert.equal(dag.consumePauseRequest(), true);
 		assert.equal(dag.consumePauseRequest(), false);
 	});
+
+	it("rejects self-loops", () => {
+		const dag = new MutableDAG();
+		dag.addStage(makeStage("a"));
+		assert.throws(
+			() => dag.addDependency("a", "a"),
+			/Self-loop/,
+		);
+	});
 });

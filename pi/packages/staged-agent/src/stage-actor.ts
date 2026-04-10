@@ -37,6 +37,13 @@ type TaskSlot = {
 	activeActor?: TaskActor;
 };
 
+export type StageActorOpts = {
+	completionPolicy?: CompletionPolicy;
+	maxTaskAttempts?: number;
+	taskTimeoutMs?: number;
+	acquireTimeoutMs?: number;
+};
+
 /**
  * Manages one stage-attempt's worth of tasks.
  *
@@ -50,6 +57,8 @@ export class StageActor extends Actor<StageActorMsg> {
 	private readonly results: TaskResult[] = [];
 	private readonly completionPolicy: CompletionPolicy;
 	private readonly maxTaskAttempts: number;
+	private readonly taskTimeoutMs?: number;
+	private readonly acquireTimeoutMs?: number;
 	private finished = false;
 
 	constructor(
@@ -61,17 +70,19 @@ export class StageActor extends Actor<StageActorMsg> {
 		private readonly pool: ActorRef<SessionPoolMsg>,
 		private readonly parent: ActorRef<DAGSchedulerActorMsg>,
 		private readonly log: EventLog,
-		opts?: { completionPolicy?: CompletionPolicy; maxTaskAttempts?: number },
+		opts?: StageActorOpts,
 	) {
 		super();
 		this.completionPolicy = opts?.completionPolicy ?? { type: "all" };
 		this.maxTaskAttempts = opts?.maxTaskAttempts ?? 3;
+		this.taskTimeoutMs = opts?.taskTimeoutMs;
+		this.acquireTimeoutMs = opts?.acquireTimeoutMs;
 		for (const t of tasks) {
 			this.slots.set(t.id, { task: t, attemptCount: 0, done: false });
 		}
 	}
 
-	protected async handle(msg: StageActorMsg): Promise<void> {
+	protected handle(msg: StageActorMsg): void {
 		if (this.finished) return;
 
 		switch (msg.type) {
@@ -94,6 +105,10 @@ export class StageActor extends Actor<StageActorMsg> {
 	}
 
 	private spawnAll(): void {
+		if (this.slots.size === 0) {
+			this.finish("completed");
+			return;
+		}
 		for (const [, slot] of this.slots) {
 			this.spawnTask(slot);
 		}
@@ -113,6 +128,8 @@ export class StageActor extends Actor<StageActorMsg> {
 				taskId: slot.task.id,
 				attemptNumber: slot.attemptCount,
 				taskAttemptId,
+				acquireTimeoutMs: this.acquireTimeoutMs,
+				executeTimeoutMs: this.taskTimeoutMs,
 			},
 			this.executor,
 			this.pool,

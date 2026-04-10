@@ -30,6 +30,8 @@ export class JobRunner {
 	private readonly log: EventLog;
 	readonly jobId: JobId;
 
+	private readonly concurrency?: number;
+
 	constructor(
 		private readonly definition: JobDefinition,
 		private readonly executor: TaskExecutor,
@@ -37,6 +39,7 @@ export class JobRunner {
 	) {
 		this.jobId = definition.id ?? randomUUID();
 		this.log = new EventLog(opts?.eventLogPath);
+		this.concurrency = opts?.concurrency;
 	}
 
 	async run(): Promise<JobResult> {
@@ -45,7 +48,7 @@ export class JobRunner {
 			this.definition.dependencies,
 		);
 
-		this.pool = new SessionPoolActor();
+		this.pool = new SessionPoolActor(this.concurrency);
 		this.scheduler = new DAGSchedulerActor(
 			this.jobId,
 			dag,
@@ -130,14 +133,20 @@ export class JobRunner {
 			if (ss.status === "completed") completedStageIds.add(sid);
 		}
 
-		const remainingStages = definition.stages.filter(
-			(s) => !completedStageIds.has(s.id),
+		const remainingStageIds = new Set(
+			definition.stages
+				.filter((s) => !completedStageIds.has(s.id))
+				.map((s) => s.id),
+		);
+
+		const remainingStages = definition.stages.filter((s) =>
+			remainingStageIds.has(s.id),
 		);
 
 		const remainingDeps = definition.dependencies.filter(
 			(d) =>
-				!completedStageIds.has(d.parentStageId) ||
-				!completedStageIds.has(d.childStageId),
+				remainingStageIds.has(d.parentStageId) &&
+				remainingStageIds.has(d.childStageId),
 		);
 
 		const resumeDef: JobDefinition = {

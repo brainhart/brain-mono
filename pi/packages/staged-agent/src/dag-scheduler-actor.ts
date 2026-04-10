@@ -174,6 +174,8 @@ export class DAGSchedulerActor extends Actor<DAGSchedulerActorMsg> {
 			{
 				completionPolicy: stageDef.completionPolicy,
 				maxTaskAttempts: stageDef.maxTaskAttempts,
+				taskTimeoutMs: stageDef.taskTimeoutMs,
+				acquireTimeoutMs: stageDef.acquireTimeoutMs,
 			},
 		);
 
@@ -207,7 +209,24 @@ export class DAGSchedulerActor extends Actor<DAGSchedulerActorMsg> {
 			timestamp: Date.now(),
 		});
 
-		await this.evaluateTransitions(stageId, results);
+		try {
+			await this.evaluateTransitions(stageId, results);
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err);
+			this.log.append({
+				type: "job_failed",
+				jobId: this.jobId,
+				error: `Transition function failed: ${msg}`,
+				timestamp: Date.now(),
+			});
+			this.terminated = true;
+			this.jobStatus = "failed";
+			this.stop();
+			this.completion.reject(
+				new Error(`Transition function failed: ${msg}`),
+			);
+			return;
+		}
 		this.scheduleReady();
 	}
 
@@ -272,8 +291,10 @@ export class DAGSchedulerActor extends Actor<DAGSchedulerActorMsg> {
 
 				const resetStages = this.dag.consumeResetRequests();
 				for (const rid of resetStages) {
+					if (this.runningStages.has(rid)) continue;
 					this.completedStages.delete(rid);
 					this.failedStages.delete(rid);
+					this.stageAttemptCounters.delete(rid);
 					this.waitingStages.add(rid);
 					this.log.append({
 						type: "stage_reset",

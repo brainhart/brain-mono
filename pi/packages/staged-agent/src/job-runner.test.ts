@@ -546,3 +546,94 @@ describe("JobRunner — recovery from event log", () => {
 		try { fs.unlinkSync(tmpFile); } catch { /* noop */ }
 	});
 });
+
+describe("JobRunner — task execution timeout", () => {
+	it("fails a task when the executor exceeds taskTimeoutMs", async () => {
+		const def: JobDefinition = {
+			stages: [
+				makeStage("slow", ["t1"], {
+					taskTimeoutMs: 50,
+					maxTaskAttempts: 1,
+				}),
+			],
+			dependencies: [],
+		};
+		const executor: TaskExecutor = async () => {
+			await new Promise((r) => setTimeout(r, 5000));
+			return { status: "success", summary: "too late" };
+		};
+		const result = await new JobRunner(def, executor).run();
+		assert.equal(result.status, "failed");
+		assert.ok(result.error?.includes("timed out") || result.error?.includes("failed"));
+	});
+
+	it("succeeds when executor finishes before timeout", async () => {
+		const def: JobDefinition = {
+			stages: [
+				makeStage("fast", ["t1"], { taskTimeoutMs: 5000 }),
+			],
+			dependencies: [],
+		};
+		const result = await new JobRunner(def, successExecutor).run();
+		assert.equal(result.status, "completed");
+	});
+});
+
+describe("JobRunner — acquire timeout", () => {
+	it("fails a task when session acquire exceeds acquireTimeoutMs", async () => {
+		const def: JobDefinition = {
+			stages: [
+				makeStage("s1", ["t1", "t2"], {
+					acquireTimeoutMs: 50,
+					maxTaskAttempts: 1,
+				}),
+			],
+			dependencies: [],
+		};
+		const executor: TaskExecutor = async () => {
+			await new Promise((r) => setTimeout(r, 5000));
+			return { status: "success", summary: "done" };
+		};
+		const result = await new JobRunner(def, executor, {
+			concurrency: 1,
+		}).run();
+		assert.equal(result.status, "failed");
+	});
+});
+
+describe("JobRunner — empty stage", () => {
+	it("completes a stage with zero tasks", async () => {
+		const def: JobDefinition = {
+			stages: [
+				{ id: "empty", name: "empty", tasks: [] },
+				makeStage("after"),
+			],
+			dependencies: [
+				{ parentStageId: "empty", childStageId: "after" },
+			],
+		};
+		const result = await new JobRunner(def, successExecutor).run();
+		assert.equal(result.status, "completed");
+		assert.ok(result.stageResults.has("after"));
+	});
+});
+
+describe("JobRunner — transition throws", () => {
+	it("fails the job when a transition function throws", async () => {
+		const def: JobDefinition = {
+			stages: [makeStage("s1"), makeStage("s2")],
+			dependencies: [
+				{
+					parentStageId: "s1",
+					childStageId: "s2",
+					transition: () => {
+						throw new Error("transition boom");
+					},
+				},
+			],
+		};
+		const result = await new JobRunner(def, successExecutor).run();
+		assert.equal(result.status, "failed");
+		assert.ok(result.error?.includes("transition boom"));
+	});
+});

@@ -68,6 +68,10 @@ export type StageDefinition = {
 	completionPolicy?: CompletionPolicy;
 	maxStageAttempts?: number;
 	maxTaskAttempts?: number;
+	/** Per-task timeout for the executor call, in milliseconds. */
+	taskTimeoutMs?: number;
+	/** Per-task timeout for session acquisition, in milliseconds. */
+	acquireTimeoutMs?: number;
 };
 
 export type StageDependency = {

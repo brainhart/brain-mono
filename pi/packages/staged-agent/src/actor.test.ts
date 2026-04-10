@@ -83,6 +83,40 @@ describe("Actor", () => {
 	});
 });
 
+describe("Actor — sendDelayed / cancelDelayed", () => {
+	it("delivers a delayed message after the specified time", async () => {
+		const acc = new Accumulator();
+		const done = new Deferred<number[]>();
+		acc.done = done;
+		acc.expectedCount = 1;
+
+		acc.sendDelayed(42, 50);
+		assert.deepEqual(acc.values, []);
+
+		const result = await done.promise;
+		assert.deepEqual(result, [42]);
+	});
+
+	it("cancels a delayed message before delivery", async () => {
+		const acc = new Accumulator();
+		const handle = acc.sendDelayed(99, 50);
+		acc.cancelDelayed(handle);
+
+		await new Promise((r) => setTimeout(r, 100));
+		assert.deepEqual(acc.values, []);
+	});
+
+	it("clears all timers on stop", async () => {
+		const acc = new Accumulator();
+		acc.sendDelayed(1, 50);
+		acc.sendDelayed(2, 50);
+		acc.stop();
+
+		await new Promise((r) => setTimeout(r, 100));
+		assert.deepEqual(acc.values, []);
+	});
+});
+
 describe("Deferred", () => {
 	it("resolves externally", async () => {
 		const d = new Deferred<string>();

@@ -30,6 +30,9 @@ export class MutableDAG implements DAGMutator {
 		childId: StageId,
 		transition?: TransitionFn,
 	): void {
+		if (parentId === childId) {
+			throw new Error(`Self-loop not allowed: "${parentId}"`);
+		}
 		const key = edgeKey(parentId, childId);
 		if (this.edgeMap.has(key)) {
 			throw new Error(`Dependency ${key} already exists`);

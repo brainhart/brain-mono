@@ -23,8 +23,10 @@ export abstract class Actor<TMsg> {
 	private mailbox: TMsg[] = [];
 	private draining = false;
 	private _stopped = false;
+	private _started = false;
 	private nextTimerId = 1;
 	private readonly activeTimers = new Map<number, ReturnType<typeof setTimeout>>();
+	private _deadLetterCount = 0;
 
 	get status(): ActorStatus {
 		return this._stopped ? "stopped" : "running";
@@ -34,8 +36,20 @@ export abstract class Actor<TMsg> {
 		return this._stopped;
 	}
 
+	get deadLetterCount(): number {
+		return this._deadLetterCount;
+	}
+
 	send(msg: TMsg): void {
-		if (this._stopped) return;
+		if (this._stopped) {
+			this._deadLetterCount++;
+			this.onDeadLetter(msg);
+			return;
+		}
+		if (!this._started) {
+			this._started = true;
+			this.onStart();
+		}
 		this.mailbox.push(msg);
 		if (!this.draining) this.drain();
 	}
@@ -68,15 +82,30 @@ export abstract class Actor<TMsg> {
 	}
 
 	stop(): void {
+		if (this._stopped) return;
 		this._stopped = true;
 		this.mailbox.length = 0;
 		for (const [, timer] of this.activeTimers) {
 			clearTimeout(timer);
 		}
 		this.activeTimers.clear();
+		this.onStop();
 	}
 
 	protected abstract handle(msg: TMsg): Promise<void> | void;
+
+	/** Called once when the first message is received. */
+	protected onStart(): void {}
+
+	/** Called when the actor is stopped. */
+	protected onStop(): void {}
+
+	/** Called when a message is sent to a stopped actor. */
+	protected onDeadLetter(_msg: TMsg): void {}
+
+	protected onError(err: unknown): void {
+		console.error(`[Actor] unhandled error:`, err);
+	}
 
 	private async drain(): Promise<void> {
 		this.draining = true;
@@ -89,10 +118,6 @@ export abstract class Actor<TMsg> {
 			}
 		}
 		this.draining = false;
-	}
-
-	protected onError(err: unknown): void {
-		console.error(`[Actor] unhandled error:`, err);
 	}
 }
 

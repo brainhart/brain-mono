@@ -18,6 +18,8 @@ import { projectState } from "./state.js";
 export type JobRunnerOpts = {
 	eventLogPath?: string;
 	concurrency?: number;
+	/** When true, the scheduler emits job_resumed instead of job_submitted. */
+	isRecovery?: boolean;
 };
 
 /**
@@ -31,6 +33,7 @@ export class JobRunner {
 	readonly jobId: JobId;
 
 	private readonly concurrency?: number;
+	private readonly isRecovery: boolean;
 
 	constructor(
 		private readonly definition: JobDefinition,
@@ -40,6 +43,7 @@ export class JobRunner {
 		this.jobId = definition.id ?? randomUUID();
 		this.log = new EventLog(opts?.eventLogPath);
 		this.concurrency = opts?.concurrency;
+		this.isRecovery = opts?.isRecovery ?? false;
 	}
 
 	async run(): Promise<JobResult> {
@@ -57,7 +61,7 @@ export class JobRunner {
 			this.log,
 		);
 
-		this.scheduler.send({ type: "start" });
+		this.scheduler.send({ type: "start", recovery: this.isRecovery });
 
 		try {
 			const stageResults: Map<StageId, TaskResult[]> =
@@ -157,6 +161,7 @@ export class JobRunner {
 
 		const runner = new JobRunner(resumeDef, executor, {
 			eventLogPath,
+			isRecovery: true,
 		});
 
 		return { state, alreadyTerminal: false, runner };

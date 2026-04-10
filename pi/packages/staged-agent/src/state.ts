@@ -101,6 +101,7 @@ export function projectState(events: readonly RuntimeEvent[]): JobState {
 				if (ss) {
 					ss.status = "waiting";
 				}
+				stageResults.delete(event.stageId);
 				break;
 			}
 

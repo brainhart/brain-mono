@@ -117,6 +117,50 @@ describe("Actor — sendDelayed / cancelDelayed", () => {
 	});
 });
 
+describe("Actor — lifecycle hooks", () => {
+	class LifecycleActor extends Actor<string> {
+		didStart = false;
+		didStop = false;
+		deadLetters: string[] = [];
+
+		protected handle(): void {}
+		protected onStart(): void { this.didStart = true; }
+		protected onStop(): void { this.didStop = true; }
+		protected onDeadLetter(msg: string): void { this.deadLetters.push(msg); }
+	}
+
+	it("calls onStart on first message", () => {
+		const a = new LifecycleActor();
+		assert.equal(a.didStart, false);
+		a.send("hello");
+		assert.equal(a.didStart, true);
+	});
+
+	it("calls onStop when stopped", () => {
+		const a = new LifecycleActor();
+		a.send("x");
+		a.stop();
+		assert.equal(a.didStop, true);
+	});
+
+	it("tracks dead letters after stop", () => {
+		const a = new LifecycleActor();
+		a.send("x");
+		a.stop();
+		a.send("dead1");
+		a.send("dead2");
+		assert.equal(a.deadLetterCount, 2);
+		assert.deepEqual(a.deadLetters, ["dead1", "dead2"]);
+	});
+
+	it("stop is idempotent", () => {
+		const a = new LifecycleActor();
+		a.stop();
+		a.stop();
+		assert.equal(a.status, "stopped");
+	});
+});
+
 describe("Deferred", () => {
 	it("resolves externally", async () => {
 		const d = new Deferred<string>();

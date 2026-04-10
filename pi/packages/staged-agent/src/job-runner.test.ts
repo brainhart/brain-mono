@@ -637,3 +637,95 @@ describe("JobRunner — transition throws", () => {
 		assert.ok(result.error?.includes("transition boom"));
 	});
 });
+
+describe("JobRunner — AbortSignal", () => {
+	it("passes AbortSignal to executor", async () => {
+		let receivedSignal: AbortSignal | undefined;
+		const def: JobDefinition = {
+			stages: [makeStage("s1")],
+			dependencies: [],
+		};
+		const executor: TaskExecutor = async (_task, _sid, signal) => {
+			receivedSignal = signal;
+			return { status: "success", summary: "done" };
+		};
+		await new JobRunner(def, executor).run();
+		assert.ok(receivedSignal);
+		assert.equal(receivedSignal!.aborted, false);
+	});
+
+	it("aborts the signal on task timeout", async () => {
+		let receivedSignal: AbortSignal | undefined;
+		const def: JobDefinition = {
+			stages: [
+				makeStage("s1", ["t1"], {
+					taskTimeoutMs: 50,
+					maxTaskAttempts: 1,
+				}),
+			],
+			dependencies: [],
+		};
+		const executor: TaskExecutor = async (_task, _sid, signal) => {
+			receivedSignal = signal;
+			await new Promise((r) => setTimeout(r, 5000));
+			return { status: "success", summary: "too late" };
+		};
+		await new JobRunner(def, executor).run();
+		assert.ok(receivedSignal);
+		assert.equal(receivedSignal!.aborted, true);
+	});
+});
+
+describe("JobRunner — stageResults reset on review loop", () => {
+	it("stageResults reflects only the latest attempt after reset", async () => {
+		let reviewRound = 0;
+
+		const reviewTransition = (
+			results: TaskResult[],
+			dag: DAGMutator,
+		) => {
+			const approved = results.every(
+				(r) => r.signals?.approved === true,
+			);
+			if (!approved) dag.resetStage("review");
+		};
+
+		const def: JobDefinition = {
+			stages: [
+				makeStage("impl"),
+				makeStage("review"),
+				makeStage("done"),
+			],
+			dependencies: [
+				{ parentStageId: "impl", childStageId: "review" },
+				{
+					parentStageId: "review",
+					childStageId: "done",
+					transition: reviewTransition,
+				},
+			],
+		};
+
+		const executor: TaskExecutor = async (task) => {
+			if (task.id === "review-task") {
+				reviewRound++;
+				return {
+					status: "success",
+					summary: `round ${reviewRound}`,
+					signals: { approved: reviewRound >= 2 },
+				};
+			}
+			return { status: "success", summary: "ok" };
+		};
+
+		const runner = new JobRunner(def, executor);
+		await runner.run();
+
+		const events = runner.getEventLog().getEvents();
+		const state = projectState(events);
+		const reviewResults = state.stageResults.get("review");
+		assert.ok(reviewResults);
+		assert.equal(reviewResults.length, 1);
+		assert.equal(reviewResults[0].summary, "round 2");
+	});
+});

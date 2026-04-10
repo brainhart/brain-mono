@@ -48,6 +48,7 @@ export class TaskActor extends Actor<TaskActorMsg> {
 	private sessionId: SessionId | undefined;
 	private acquireTimer: TimerHandle | undefined;
 	private executeTimer: TimerHandle | undefined;
+	private abortController: AbortController | undefined;
 
 	constructor(
 		private readonly task: TaskDefinition,
@@ -147,8 +148,9 @@ export class TaskActor extends Actor<TaskActorMsg> {
 			timestamp: Date.now(),
 		});
 
+		this.abortController = new AbortController();
 		const self = this.ref();
-		this.executor(this.task, sessionId).then(
+		this.executor(this.task, sessionId, this.abortController.signal).then(
 			(result) => self.send({ type: "execute_completed", result }),
 			(err) =>
 				self.send({
@@ -239,6 +241,7 @@ export class TaskActor extends Actor<TaskActorMsg> {
 	private onExecuteTimeout(): void {
 		if (this.phase !== "executing") return;
 		this.executeTimer = undefined;
+		this.abortController?.abort();
 
 		this.log.append({
 			type: "task_failed",
@@ -261,6 +264,7 @@ export class TaskActor extends Actor<TaskActorMsg> {
 	}
 
 	private fail(error: string): void {
+		this.abortController?.abort();
 		this.parent.send({
 			type: "task_failed",
 			taskId: this.opts.taskId,

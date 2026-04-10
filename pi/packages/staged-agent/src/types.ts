@@ -110,6 +110,7 @@ export type JobResult = {
 export type TaskExecutor = (
 	task: TaskDefinition,
 	sessionId: SessionId,
+	signal: AbortSignal,
 ) => Promise<TaskResult>;
 
 /**

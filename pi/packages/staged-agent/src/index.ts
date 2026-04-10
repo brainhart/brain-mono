@@ -27,7 +27,7 @@ export type { RuntimeEvent } from "./events.js";
 
 export { Actor, Deferred, type ActorRef, type ActorStatus, type TimerHandle } from "./actor.js";
 export { MutableDAG } from "./dag.js";
-export { EventLog } from "./event-log.js";
+export { EventLog, type EventLogOpts, type ReplayResult } from "./event-log.js";
 export { SessionPoolActor, type SessionPoolMsg } from "./session-pool-actor.js";
 export { TaskActor, type TaskActorMsg, type TaskActorOpts } from "./task-actor.js";
 export { StageActor, type StageActorMsg, type StageActorOpts } from "./stage-actor.js";

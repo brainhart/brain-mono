@@ -11,6 +11,8 @@ import type {
 type BaseEvent = {
 	jobId: JobId;
 	timestamp: number;
+	/** Monotonic sequence number assigned by EventLog.append(). */
+	seq?: number;
 };
 
 export type JobSubmittedEvent = BaseEvent & {

@@ -54,6 +54,7 @@ ts/                 TypeScript workspace (npm)
 
 go/                 Go workspace
 ├── go.work         go.work listing all modules
+├── gorun/          single-file Go script runner
 └── hello-go/       example module
 
 rust/               Rust workspace (cargo)

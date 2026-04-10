@@ -1,6 +1,6 @@
-import { colored, fg, style, screen as scr } from "../ansi.js";
-import { horizontalRule } from "../format.js";
-import type { KeyEvent } from "../screen.js";
+import type { Component } from "@mariozechner/pi-tui";
+import { matchesKey } from "@mariozechner/pi-tui";
+import { colored, horizontalRule, FG_CYAN, FG_GRAY, BOLD } from "../helpers.js";
 
 export type HelpAction = { type: "close" };
 
@@ -16,39 +16,30 @@ const HELP_CONTENT = [
 	["q", "Quit TUI (job continues in background)"],
 ] as const;
 
-export class HelpView {
-	handleInput(key: KeyEvent): HelpAction | undefined {
-		if (
-			key.type === "escape" ||
-			key.type === "enter" ||
-			(key.type === "char" && key.char === "?") ||
-			(key.type === "char" && key.char === "q")
-		) {
-			return { type: "close" };
+export class HelpView implements Component {
+	onAction: ((action: HelpAction) => void) | undefined;
+
+	invalidate(): void {}
+
+	handleInput(data: string): void {
+		if (matchesKey(data, "escape") || matchesKey(data, "enter") || matchesKey(data, "?") || matchesKey(data, "q")) {
+			this.onAction?.({ type: "close" });
 		}
-		return undefined;
 	}
 
-	render(cols: number, rows: number): string {
+	render(width: number): string[] {
 		const lines: string[] = [];
-
-		lines.push(horizontalRule(cols, "─"));
-		lines.push(colored("  Keybindings", style.bold, fg.brightCyan));
-		lines.push(horizontalRule(cols, "─"));
+		lines.push(horizontalRule(width));
+		lines.push(colored("  Keybindings", BOLD, FG_CYAN));
+		lines.push(horizontalRule(width));
 		lines.push("");
-
 		for (const [key, desc] of HELP_CONTENT) {
-			const keyStr = colored(key.padEnd(20), fg.cyan);
+			const keyStr = colored(key.padEnd(20), FG_CYAN);
 			lines.push(`  ${keyStr}${desc}`);
 		}
-
 		lines.push("");
-		lines.push(horizontalRule(cols, "─"));
-		lines.push(colored("  Press ? or esc to close", fg.gray));
-
-		while (lines.length < rows - 1) lines.push("");
-		if (lines.length > rows - 1) lines.length = rows - 1;
-
-		return lines.map((l) => scr.clearLine + l).join("\n");
+		lines.push(horizontalRule(width));
+		lines.push(colored("  Press ? or esc to close", FG_GRAY));
+		return lines;
 	}
 }

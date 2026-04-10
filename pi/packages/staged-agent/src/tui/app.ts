@@ -1,12 +1,28 @@
+/**
+ * Main TUI application for observing and controlling a staged-agent job.
+ *
+ * Uses pi-tui's `TUI` and `ProcessTerminal` for rendering, input, and
+ * terminal management. The staged-agent views are pi-tui `Component`
+ * implementations that render into the TUI's component tree.
+ *
+ * Usage:
+ * ```ts
+ * const runner = new JobRunner(definition, executor);
+ * const tui = new TuiApp(runner, definition);
+ * tui.start();
+ * const result = await runner.run();
+ * tui.stop();
+ * ```
+ */
+
+import { TUI, ProcessTerminal, type Terminal } from "@mariozechner/pi-tui";
 import type { JobRunner } from "../job-runner.js";
 import type { JobDefinition, StageId, TaskId, TaskDefinition } from "../types.js";
 import type { JobState } from "../state.js";
 import { projectState } from "../state.js";
-import { Screen, type KeyEvent } from "./screen.js";
-import { cursor } from "./ansi.js";
-import { DashboardView, type DashboardAction } from "./views/dashboard.js";
-import { StageView, type StageViewAction } from "./views/stage.js";
-import { TaskView, type TaskViewAction } from "./views/task.js";
+import { DashboardView } from "./views/dashboard.js";
+import { StageView } from "./views/stage.js";
+import { TaskView } from "./views/task.js";
 import { HelpView } from "./views/help.js";
 
 type ActiveView =
@@ -15,28 +31,12 @@ type ActiveView =
 	| { type: "task"; view: TaskView; taskId: TaskId };
 
 export type TuiAppOpts = {
-	stdout?: NodeJS.WriteStream;
-	stdin?: NodeJS.ReadStream;
+	terminal?: Terminal;
 };
 
-/**
- * Interactive TUI for observing and controlling a staged-agent job.
- *
- * Subscribes to the job's event log for real-time updates and renders
- * a navigable hierarchy: job dashboard → stage detail → task detail.
- * Supports pause/resume/cancel from the keyboard.
- *
- * Usage:
- * ```ts
- * const runner = new JobRunner(definition, executor);
- * const tui = new TuiApp(runner, definition);
- * tui.start();                    // enters TUI mode
- * const result = await runner.run(); // job runs while TUI is active
- * tui.stop();                     // exits TUI mode
- * ```
- */
 export class TuiApp {
-	private readonly screen: Screen;
+	private readonly tui: TUI;
+	private readonly terminal: Terminal;
 	private readonly definition: JobDefinition;
 	private readonly runner: JobRunner;
 	private state: JobState;
@@ -50,7 +50,8 @@ export class TuiApp {
 	constructor(runner: JobRunner, definition: JobDefinition, opts?: TuiAppOpts) {
 		this.runner = runner;
 		this.definition = definition;
-		this.screen = new Screen(opts?.stdout, opts?.stdin);
+		this.terminal = opts?.terminal ?? new ProcessTerminal();
+		this.tui = new TUI(this.terminal);
 		this.startTime = Date.now();
 
 		this.state = {
@@ -62,6 +63,9 @@ export class TuiApp {
 		};
 
 		const dashboard = new DashboardView(definition);
+		dashboard.setStartTime(this.startTime);
+		dashboard.setState(this.state);
+		dashboard.onAction = (a) => this.handleDashboardAction(a);
 		this.viewStack = [{ type: "dashboard", view: dashboard }];
 	}
 
@@ -69,17 +73,19 @@ export class TuiApp {
 		if (this.started) return;
 		this.started = true;
 
-		this.screen.start((key) => this.onInput(key));
+		this.syncActiveView();
+		this.tui.start();
 
 		const log = this.runner.getEventLog();
 		this.unsubscribe = log.subscribe(() => {
 			this.state = projectState(log.getEvents());
-			this.render();
+			this.updateViewStates();
+			this.tui.requestRender();
 		});
 
-		this.renderTimer = setInterval(() => this.render(), 1000);
-
-		this.render();
+		this.renderTimer = setInterval(() => {
+			this.tui.requestRender();
+		}, 1000);
 	}
 
 	stop(): void {
@@ -90,55 +96,47 @@ export class TuiApp {
 			clearInterval(this.renderTimer);
 			this.renderTimer = undefined;
 		}
-
 		this.unsubscribe?.();
 		this.unsubscribe = undefined;
 
-		this.screen.stop();
+		this.tui.stop();
 	}
 
 	private get activeView(): ActiveView {
 		return this.viewStack[this.viewStack.length - 1];
 	}
 
-	private onInput(key: KeyEvent): void {
-		if (key.type === "resize") {
-			this.render();
-			return;
-		}
-
-		if (this.helpOverlay) {
-			const action = this.helpOverlay.handleInput(key);
-			if (action?.type === "close") {
-				this.helpOverlay = undefined;
-				this.render();
-			}
-			return;
-		}
-
+	private syncActiveView(): void {
+		this.tui.clear();
 		const av = this.activeView;
-		switch (av.type) {
-			case "dashboard":
-				this.handleDashboardAction(av.view.handleInput(key));
-				break;
-			case "stage":
-				this.handleStageAction(av.view.handleInput(key));
-				break;
-			case "task":
-				this.handleTaskAction(av.view.handleInput(key));
-				break;
+		if (this.helpOverlay) {
+			this.tui.addChild(this.helpOverlay);
+			this.tui.setFocus(this.helpOverlay);
+		} else {
+			this.tui.addChild(av.view);
+			this.tui.setFocus(av.view);
 		}
-
-		this.render();
 	}
 
-	private handleDashboardAction(action: DashboardAction | undefined): void {
-		if (!action) return;
+	private updateViewStates(): void {
+		for (const entry of this.viewStack) {
+			switch (entry.type) {
+				case "dashboard": entry.view.setState(this.state); break;
+				case "stage": entry.view.setState(this.state); break;
+				case "task": entry.view.setState(this.state); break;
+			}
+		}
+	}
+
+	private handleDashboardAction(action: import("./views/dashboard.js").DashboardAction): void {
 		switch (action.type) {
 			case "drill_stage": {
 				const stageDef = this.definition.stages.find((s) => s.id === action.stageId);
 				const view = new StageView(action.stageId, stageDef);
+				view.setState(this.state);
+				view.onAction = (a) => this.handleStageAction(a);
 				this.viewStack.push({ type: "stage", view, stageId: action.stageId });
+				this.syncActiveView();
 				break;
 			}
 			case "pause":
@@ -151,7 +149,7 @@ export class TuiApp {
 				this.runner.cancel();
 				break;
 			case "help":
-				this.helpOverlay = new HelpView();
+				this.showHelp();
 				break;
 			case "quit":
 				this.stop();
@@ -159,20 +157,25 @@ export class TuiApp {
 		}
 	}
 
-	private handleStageAction(action: StageViewAction | undefined): void {
-		if (!action) return;
+	private handleStageAction(action: import("./views/stage.js").StageViewAction): void {
 		switch (action.type) {
 			case "back":
-				if (this.viewStack.length > 1) this.viewStack.pop();
+				if (this.viewStack.length > 1) {
+					this.viewStack.pop();
+					this.syncActiveView();
+				}
 				break;
 			case "drill_task": {
 				const taskDef = this.findTaskDef(action.taskId);
 				const view = new TaskView(action.taskId, taskDef);
+				view.setState(this.state);
+				view.onAction = (a) => this.handleTaskAction(a);
 				this.viewStack.push({ type: "task", view, taskId: action.taskId });
+				this.syncActiveView();
 				break;
 			}
 			case "help":
-				this.helpOverlay = new HelpView();
+				this.showHelp();
 				break;
 			case "quit":
 				this.stop();
@@ -180,19 +183,34 @@ export class TuiApp {
 		}
 	}
 
-	private handleTaskAction(action: TaskViewAction | undefined): void {
-		if (!action) return;
+	private handleTaskAction(action: import("./views/task.js").TaskViewAction): void {
 		switch (action.type) {
 			case "back":
-				if (this.viewStack.length > 1) this.viewStack.pop();
+				if (this.viewStack.length > 1) {
+					this.viewStack.pop();
+					this.syncActiveView();
+				}
 				break;
 			case "help":
-				this.helpOverlay = new HelpView();
+				this.showHelp();
 				break;
 			case "quit":
 				this.stop();
 				break;
 		}
+	}
+
+	private showHelp(): void {
+		this.helpOverlay = new HelpView();
+		this.helpOverlay.onAction = (a) => {
+			if (a.type === "close") {
+				this.helpOverlay = undefined;
+				this.syncActiveView();
+				this.tui.requestRender();
+			}
+		};
+		this.syncActiveView();
+		this.tui.requestRender();
 	}
 
 	private findTaskDef(taskId: TaskId): TaskDefinition | undefined {
@@ -201,32 +219,5 @@ export class TuiApp {
 			if (td) return td;
 		}
 		return undefined;
-	}
-
-	private render(): void {
-		if (!this.started) return;
-
-		const cols = this.screen.cols;
-		const rows = this.screen.rows;
-		let content: string;
-
-		if (this.helpOverlay) {
-			content = this.helpOverlay.render(cols, rows);
-		} else {
-			const av = this.activeView;
-			switch (av.type) {
-				case "dashboard":
-					content = av.view.render(this.state, cols, rows, this.startTime);
-					break;
-				case "stage":
-					content = av.view.render(this.state, cols, rows);
-					break;
-				case "task":
-					content = av.view.render(this.state, cols, rows);
-					break;
-			}
-		}
-
-		this.screen.write(cursor.home + content);
 	}
 }

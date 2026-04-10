@@ -1,136 +1,123 @@
+import type { Component } from "@mariozechner/pi-tui";
+import { matchesKey, wrapTextWithAnsi } from "@mariozechner/pi-tui";
 import type { JobState } from "../../state.js";
 import type { TaskDefinition, TaskId } from "../../types.js";
-import { colored, fg, style, screen as scr } from "../ansi.js";
-import { horizontalRule, wrapText } from "../format.js";
-import { statusLabel } from "../symbols.js";
-import type { KeyEvent } from "../screen.js";
+import {
+	colored, statusLabel, horizontalRule,
+	FG_CYAN, FG_GRAY, FG_GREEN, FG_RED, FG_YELLOW, FG_WHITE, BOLD,
+} from "../helpers.js";
 
 export type TaskViewAction =
 	| { type: "back" }
 	| { type: "help" }
 	| { type: "quit" };
 
-export class TaskView {
+export class TaskView implements Component {
 	private scrollOffset = 0;
+	private state: JobState | undefined;
+	onAction: ((action: TaskViewAction) => void) | undefined;
 
 	constructor(
 		readonly taskId: TaskId,
 		private readonly taskDef: TaskDefinition | undefined,
 	) {}
 
-	handleInput(key: KeyEvent): TaskViewAction | undefined {
-		switch (key.type) {
-			case "escape":
-			case "backspace":
-				return { type: "back" };
-			case "up":
-				this.scrollOffset = Math.max(0, this.scrollOffset - 1);
-				return undefined;
-			case "down":
-				this.scrollOffset++;
-				return undefined;
-			case "char":
-				switch (key.char) {
-					case "k": this.scrollOffset = Math.max(0, this.scrollOffset - 1); return undefined;
-					case "j": this.scrollOffset++; return undefined;
-					case "?": return { type: "help" };
-					case "q": return { type: "quit" };
-				}
-				return undefined;
-			default:
-				return undefined;
+	setState(state: JobState): void { this.state = state; }
+
+	invalidate(): void {}
+
+	handleInput(data: string): void {
+		if (matchesKey(data, "escape") || matchesKey(data, "backspace")) {
+			this.onAction?.({ type: "back" });
+		} else if (matchesKey(data, "up") || matchesKey(data, "k")) {
+			this.scrollOffset = Math.max(0, this.scrollOffset - 1);
+		} else if (matchesKey(data, "down") || matchesKey(data, "j")) {
+			this.scrollOffset++;
+		} else if (matchesKey(data, "?")) {
+			this.onAction?.({ type: "help" });
+		} else if (matchesKey(data, "q")) {
+			this.onAction?.({ type: "quit" });
 		}
 	}
 
-	render(state: JobState, cols: number, rows: number): string {
-		const contentLines: string[] = [];
+	render(width: number): string[] {
+		const state = this.state;
+		if (!state) return ["(no state)"];
+
+		const lines: string[] = [];
 		const ts = state.tasks.get(this.taskId);
 		const status = ts?.status ?? "pending";
 		const attempt = ts?.attemptCount ?? 0;
 
-		contentLines.push(horizontalRule(cols, "─"));
-		contentLines.push(
-			colored(` Task: ${this.taskId} `, style.bold, fg.brightWhite)
+		lines.push(horizontalRule(width));
+		lines.push(
+			colored(` Task: ${this.taskId} `, BOLD, FG_WHITE)
 			+ "  " + statusLabel(status)
-			+ (attempt > 0 ? colored(`  attempt ${attempt}`, fg.yellow) : "")
+			+ (attempt > 0 ? colored(`  attempt ${attempt}`, FG_YELLOW) : ""),
 		);
-		contentLines.push(horizontalRule(cols, "─"));
-		contentLines.push("");
+		lines.push(horizontalRule(width));
+		lines.push("");
 
-		contentLines.push(colored("  Prompt:", style.bold, fg.cyan));
-		contentLines.push("");
+		lines.push(colored("  Prompt:", BOLD, FG_CYAN));
+		lines.push("");
 		const prompt = this.taskDef?.prompt ?? "(unknown)";
-		const wrappedPrompt = wrapText(prompt, cols - 4);
-		for (const line of wrappedPrompt) {
-			contentLines.push("    " + line);
-		}
-		contentLines.push("");
+		const wrappedPrompt = wrapTextWithAnsi(prompt, Math.max(1, width - 4));
+		for (const line of wrappedPrompt) lines.push("    " + line);
+		lines.push("");
 
 		if (this.taskDef?.context && Object.keys(this.taskDef.context).length > 0) {
-			contentLines.push(colored("  Context:", style.bold, fg.cyan));
-			contentLines.push("");
+			lines.push(colored("  Context:", BOLD, FG_CYAN));
+			lines.push("");
 			const ctxStr = JSON.stringify(this.taskDef.context, null, 2);
-			for (const line of ctxStr.split("\n")) {
-				contentLines.push("    " + line);
-			}
-			contentLines.push("");
+			for (const line of ctxStr.split("\n")) lines.push("    " + line);
+			lines.push("");
 		}
 
-		contentLines.push(horizontalRule(cols, "─"));
-		contentLines.push("");
+		lines.push(horizontalRule(width));
+		lines.push("");
 
 		if (ts?.result) {
-			const resultColor = ts.result.status === "success" ? fg.green : fg.red;
-			contentLines.push(
-				colored("  Result: ", style.bold, fg.cyan)
-				+ colored(ts.result.status, resultColor, style.bold)
+			const resultColor = ts.result.status === "success" ? FG_GREEN : FG_RED;
+			lines.push(
+				colored("  Result: ", BOLD, FG_CYAN)
+				+ colored(ts.result.status, resultColor, BOLD),
 			);
-			contentLines.push("");
-
-			const wrappedSummary = wrapText(ts.result.summary, cols - 4);
-			for (const line of wrappedSummary) {
-				contentLines.push("    " + line);
-			}
-			contentLines.push("");
+			lines.push("");
+			const wrappedSummary = wrapTextWithAnsi(ts.result.summary, Math.max(1, width - 4));
+			for (const line of wrappedSummary) lines.push("    " + line);
+			lines.push("");
 
 			if (ts.result.signals && Object.keys(ts.result.signals).length > 0) {
-				contentLines.push(colored("  Signals:", style.bold, fg.gray));
+				lines.push(colored("  Signals:", BOLD, FG_GRAY));
 				for (const [k, v] of Object.entries(ts.result.signals)) {
-					contentLines.push(`    ${colored(k, fg.cyan)}: ${String(v)}`);
+					lines.push(`    ${colored(k, FG_CYAN)}: ${String(v)}`);
 				}
-				contentLines.push("");
+				lines.push("");
 			}
 
 			if (ts.result.metrics && Object.keys(ts.result.metrics).length > 0) {
-				contentLines.push(colored("  Metrics:", style.bold, fg.gray));
+				lines.push(colored("  Metrics:", BOLD, FG_GRAY));
 				for (const [k, v] of Object.entries(ts.result.metrics)) {
-					contentLines.push(`    ${colored(k, fg.cyan)}: ${v}`);
+					lines.push(`    ${colored(k, FG_CYAN)}: ${v}`);
 				}
-				contentLines.push("");
+				lines.push("");
 			}
 		} else {
-			contentLines.push(colored("  Result: ", style.bold, fg.cyan) + colored("(pending)", fg.gray));
-			contentLines.push("");
+			lines.push(colored("  Result: ", BOLD, FG_CYAN) + colored("(pending)", FG_GRAY));
+			lines.push("");
 		}
 
-		contentLines.push(horizontalRule(cols, "─"));
-		contentLines.push(this.renderFooter());
-
-		const maxScroll = Math.max(0, contentLines.length - (rows - 1));
-		if (this.scrollOffset > maxScroll) this.scrollOffset = maxScroll;
-
-		const visible = contentLines.slice(this.scrollOffset, this.scrollOffset + rows - 1);
-		while (visible.length < rows - 1) visible.push("");
-
-		return visible.map((l) => scr.clearLine + l).join("\n");
+		lines.push(horizontalRule(width));
+		lines.push(this.renderFooter());
+		return lines;
 	}
 
 	private renderFooter(): string {
 		const keys: string[] = [];
-		keys.push(colored("↑↓", fg.cyan) + " scroll");
-		keys.push(colored("esc", fg.gray) + " back");
-		keys.push(colored("?", fg.gray) + " help");
-		keys.push(colored("q", fg.gray) + " quit");
+		keys.push(colored("↑↓", FG_CYAN) + " scroll");
+		keys.push(colored("esc", FG_GRAY) + " back");
+		keys.push(colored("?", FG_GRAY) + " help");
+		keys.push(colored("q", FG_GRAY) + " quit");
 		return " " + keys.join("  ");
 	}
 }

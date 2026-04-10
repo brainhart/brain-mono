@@ -71,39 +71,56 @@ hierarchy:
 
 ## Architecture
 
+Built **on top of `@mariozechner/pi-tui`** — the same TUI framework
+that powers the pi CLI. This means we get differential rendering,
+Kitty keyboard protocol, proper Unicode/CJK width handling, overlay
+support, and focus management for free.
+
 ```
   JobRunner  ──events──▶  EventLog  ──subscribe──▶  TuiApp
                                                        │
                                               ┌────────┴────────┐
-                                              │   ViewRouter    │
+                                              │ pi-tui TUI      │
+                                              │ (diff render,   │
+                                              │  focus, overlay) │
                                               ├─────────────────┤
-                                              │ DashboardView   │
-                                              │ StageView       │
-                                              │ TaskView        │
+                                              │ DashboardView   │  ← pi-tui Component
+                                              │ StageView       │  ← pi-tui Component
+                                              │ TaskView        │  ← pi-tui Component
+                                              │ HelpView        │  ← pi-tui Component
                                               └─────────────────┘
                                                        │
                                               ┌────────┴────────┐
-                                              │   Screen        │
-                                              │ (alt buffer,    │
-                                              │  raw mode,      │
-                                              │  ANSI rendering) │
+                                              │ ProcessTerminal │  ← from pi-tui
+                                              │ (raw mode,      │
+                                              │  Kitty protocol, │
+                                              │  resize)         │
                                               └─────────────────┘
 ```
 
-### Module Map
+### What pi-tui provides (not rebuilt)
+
+| Capability | pi-tui module |
+|-----------|---------------|
+| Terminal management | `ProcessTerminal` — raw mode, Kitty protocol, drain |
+| Differential rendering | `TUI` — only redraws changed lines |
+| Input parsing | `matchesKey`, `parseKey`, `Key` — all keyboard protocols |
+| Unicode width | `visibleWidth`, `truncateToWidth`, `wrapTextWithAnsi` |
+| Component model | `Component` interface with `render()` + `handleInput()` |
+| Focus management | `TUI.setFocus()` — routes input to focused component |
+| Overlay system | `TUI.showOverlay()` — for modal help, etc. |
+| Text components | `Text`, `SelectList`, `Box`, `Markdown`, `Loader` |
+
+### What staged-agent adds
 
 | Module | Responsibility |
 |--------|---------------|
-| `tui/ansi.ts` | ANSI escape code primitives (colors, cursor, clear) |
-| `tui/screen.ts` | Alternate buffer, raw mode, resize, input dispatch |
-| `tui/symbols.ts` | Unicode status symbols (✓, ✗, ◌, ⟳, ▶, ‖) |
-| `tui/format.ts` | Duration formatting, text truncation, layout helpers |
-| `tui/views/dashboard.ts` | Job-level DAG overview with stage list |
-| `tui/views/stage.ts` | Stage detail with task list |
-| `tui/views/task.ts` | Task detail (prompt, result, timing) |
-| `tui/views/help.ts` | Full keybinding reference overlay |
-| `tui/router.ts` | View stack: push/pop navigation with breadcrumbs |
-| `tui/app.ts` | Main class: wires runner, event log, screen, router |
+| `tui/helpers.ts` | Thin wrappers: status icons/labels, duration formatting |
+| `tui/views/dashboard.ts` | Job-level DAG overview (pi-tui `Component`) |
+| `tui/views/stage.ts` | Stage detail with task list (pi-tui `Component`) |
+| `tui/views/task.ts` | Task detail with prompt/result (pi-tui `Component`) |
+| `tui/views/help.ts` | Keybinding reference (pi-tui `Component`) |
+| `tui/app.ts` | Wires `TUI` + `ProcessTerminal` + view stack + `JobRunner` |
 
 ### Integration Points
 

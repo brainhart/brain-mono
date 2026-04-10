@@ -1,9 +1,11 @@
+import type { Component } from "@mariozechner/pi-tui";
+import { matchesKey, truncateToWidth } from "@mariozechner/pi-tui";
 import type { JobState, StageState } from "../../state.js";
 import type { JobDefinition, StageId } from "../../types.js";
-import { colored, fg, style, screen as scr } from "../ansi.js";
-import { formatDuration, horizontalRule, padRight, truncate } from "../format.js";
-import { statusIcon, statusLabel } from "../symbols.js";
-import type { KeyEvent } from "../screen.js";
+import {
+	colored, statusIcon, statusLabel, formatDuration, horizontalRule, padRight,
+	FG_CYAN, FG_GRAY, FG_YELLOW, FG_RED, FG_GREEN, FG_WHITE, BOLD,
+} from "../helpers.js";
 
 export type DashboardAction =
 	| { type: "drill_stage"; stageId: StageId }
@@ -13,133 +15,117 @@ export type DashboardAction =
 	| { type: "help" }
 	| { type: "quit" };
 
-export class DashboardView {
+/**
+ * Job-level dashboard component.
+ * Lists all stages with status, task counts, and elapsed time.
+ * Implements pi-tui Component interface for rendering and input.
+ */
+export class DashboardView implements Component {
 	private cursor = 0;
-	private stageIds: StageId[] = [];
+	private stageIds: StageId[];
+	private state: JobState | undefined;
+	private startTime = Date.now();
+	onAction: ((action: DashboardAction) => void) | undefined;
 
 	constructor(private readonly definition: JobDefinition) {
 		this.stageIds = definition.stages.map((s) => s.id);
 	}
 
-	handleInput(key: KeyEvent): DashboardAction | undefined {
-		switch (key.type) {
-			case "up":
-				this.cursor = Math.max(0, this.cursor - 1);
-				return undefined;
-			case "down":
-				this.cursor = Math.min(this.stageIds.length - 1, this.cursor + 1);
-				return undefined;
-			case "enter":
-				if (this.stageIds.length > 0) {
-					return { type: "drill_stage", stageId: this.stageIds[this.cursor] };
-				}
-				return undefined;
-			case "char":
-				switch (key.char) {
-					case "k": this.cursor = Math.max(0, this.cursor - 1); return undefined;
-					case "j": this.cursor = Math.min(this.stageIds.length - 1, this.cursor + 1); return undefined;
-					case "p": return { type: "pause" };
-					case "r": return { type: "resume" };
-					case "c": return { type: "cancel" };
-					case "?": return { type: "help" };
-					case "q": return { type: "quit" };
-				}
-				return undefined;
-			default:
-				return undefined;
+	setStartTime(t: number): void { this.startTime = t; }
+
+	setState(state: JobState): void { this.state = state; }
+
+	invalidate(): void {}
+
+	handleInput(data: string): void {
+		if (matchesKey(data, "up") || matchesKey(data, "k")) {
+			this.cursor = Math.max(0, this.cursor - 1);
+		} else if (matchesKey(data, "down") || matchesKey(data, "j")) {
+			this.cursor = Math.min(this.stageIds.length - 1, this.cursor + 1);
+		} else if (matchesKey(data, "enter")) {
+			if (this.stageIds.length > 0) {
+				this.onAction?.({ type: "drill_stage", stageId: this.stageIds[this.cursor] });
+			}
+		} else if (matchesKey(data, "p")) {
+			this.onAction?.({ type: "pause" });
+		} else if (matchesKey(data, "r")) {
+			this.onAction?.({ type: "resume" });
+		} else if (matchesKey(data, "c")) {
+			this.onAction?.({ type: "cancel" });
+		} else if (matchesKey(data, "?")) {
+			this.onAction?.({ type: "help" });
+		} else if (matchesKey(data, "q")) {
+			this.onAction?.({ type: "quit" });
 		}
 	}
 
-	render(state: JobState, cols: number, rows: number, startTime: number): string {
+	render(width: number): string[] {
+		const state = this.state;
+		if (!state) return ["(no state)"];
+
 		const lines: string[] = [];
-		const now = Date.now();
-		const elapsed = formatDuration(now - startTime);
+		const elapsed = formatDuration(Date.now() - this.startTime);
 
-		const title = colored(
-			` Job ${truncate(state.jobId, 20)} `,
-			style.bold,
-			fg.brightWhite,
+		lines.push(horizontalRule(width));
+		lines.push(
+			colored(` Job ${truncateToWidth(state.jobId, 20)}`, BOLD, FG_WHITE)
+			+ "  " + statusLabel(state.status)
+			+ "  " + colored(elapsed, FG_GRAY),
 		);
-		const statusStr = statusLabel(state.status);
-
-		lines.push(horizontalRule(cols, "─"));
-		lines.push(`${title}  ${statusStr}  ${colored(elapsed, fg.gray)}`);
-		lines.push(horizontalRule(cols, "─"));
+		lines.push(horizontalRule(width));
 		lines.push("");
 
-		if (this.stageIds.length !== this.definition.stages.length) {
-			this.stageIds = this.definition.stages.map((s) => s.id);
+		const dynStageIds = [...state.stages.keys()].filter((id) => !this.stageIds.includes(id));
+		if (dynStageIds.length > 0) {
+			this.stageIds = [...this.definition.stages.map((s) => s.id), ...dynStageIds];
 		}
 
-		const dynStageIds = [...state.stages.keys()].filter(
-			(id) => !this.stageIds.includes(id),
-		);
-		const allStageIds = [...this.stageIds, ...dynStageIds];
-		this.stageIds = allStageIds;
-
-		for (let i = 0; i < allStageIds.length; i++) {
-			const sid = allStageIds[i];
+		for (let i = 0; i < this.stageIds.length; i++) {
+			const sid = this.stageIds[i];
 			const ss = state.stages.get(sid);
-			const line = this.renderStageLine(sid, ss, cols, now);
+			const line = this.renderStageLine(sid, ss, width);
 			const prefix = i === this.cursor
-				? colored(" ▶ ", fg.cyan, style.bold)
+				? colored(" ▶ ", FG_CYAN, BOLD)
 				: "   ";
 			lines.push(prefix + line);
 		}
 
 		lines.push("");
-		lines.push(horizontalRule(cols, "─"));
+		lines.push(horizontalRule(width));
 		lines.push(this.renderFooter(state.status));
-
-		const maxLines = rows - 1;
-		while (lines.length < maxLines) lines.push("");
-		if (lines.length > maxLines) lines.length = maxLines;
-
-		return lines.map((l) => scr.clearLine + l).join("\n");
+		return lines;
 	}
 
-	private renderStageLine(
-		stageId: StageId,
-		ss: StageState | undefined,
-		cols: number,
-		_now: number,
-	): string {
+	private renderStageLine(stageId: StageId, ss: StageState | undefined, cols: number): string {
 		const status = ss?.status ?? "waiting";
 		const icon = statusIcon(status);
 		const stageDef = this.definition.stages.find((s) => s.id === stageId);
 		const name = stageDef?.name ?? stageId;
 		const taskCount = stageDef?.tasks.length ?? 0;
-		const completedTasks = this.countCompletedTasks(stageId, ss);
 		const attempt = ss?.attemptCount ?? 0;
 
-		let info = `${completedTasks}/${taskCount} tasks`;
-		if (attempt > 1) {
-			info += colored(`  attempt ${attempt}`, fg.yellow);
-		}
+		let info = `${taskCount} tasks`;
+		if (attempt > 1) info += colored(`  attempt ${attempt}`, FG_YELLOW);
 
 		const maxName = Math.min(30, Math.floor(cols * 0.3));
-		const nameStr = padRight(truncate(name, maxName), maxName);
+		const nameStr = padRight(truncateToWidth(name, maxName), maxName);
 		return `[${icon}] ${nameStr}  ${info}`;
-	}
-
-	private countCompletedTasks(stageId: StageId, _ss: StageState | undefined): number {
-		return 0;
 	}
 
 	private renderFooter(jobStatus: string): string {
 		const keys: string[] = [];
-		keys.push(colored("↑↓", fg.cyan) + " navigate");
-		keys.push(colored("enter", fg.cyan) + " drill-down");
+		keys.push(colored("↑↓", FG_CYAN) + " navigate");
+		keys.push(colored("enter", FG_CYAN) + " drill-down");
 		if (jobStatus === "running") {
-			keys.push(colored("p", fg.yellow) + " pause");
-			keys.push(colored("c", fg.red) + " cancel");
+			keys.push(colored("p", FG_YELLOW) + " pause");
+			keys.push(colored("c", FG_RED) + " cancel");
 		}
 		if (jobStatus === "paused") {
-			keys.push(colored("r", fg.green) + " resume");
-			keys.push(colored("c", fg.red) + " cancel");
+			keys.push(colored("r", FG_GREEN) + " resume");
+			keys.push(colored("c", FG_RED) + " cancel");
 		}
-		keys.push(colored("?", fg.gray) + " help");
-		keys.push(colored("q", fg.gray) + " quit");
+		keys.push(colored("?", FG_GRAY) + " help");
+		keys.push(colored("q", FG_GRAY) + " quit");
 		return " " + keys.join("  ");
 	}
 }

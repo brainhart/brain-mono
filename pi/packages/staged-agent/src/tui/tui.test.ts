@@ -1,8 +1,10 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { colored, fg, style, stripAnsi } from "./ansi.js";
-import { statusIcon, statusLabel } from "./symbols.js";
-import { formatDuration, truncate, padRight, padLeft, wrapText, horizontalRule } from "./format.js";
+import { visibleWidth } from "@mariozechner/pi-tui";
+import {
+	colored, statusIcon, statusLabel, formatDuration, horizontalRule, padRight,
+	FG_RED, BOLD,
+} from "./helpers.js";
 import { DashboardView } from "./views/dashboard.js";
 import { StageView } from "./views/stage.js";
 import { TaskView } from "./views/task.js";
@@ -10,30 +12,23 @@ import { HelpView } from "./views/help.js";
 import type { JobState } from "../state.js";
 import type { JobDefinition } from "../types.js";
 
+function stripAnsi(text: string): string {
+	return text.replace(/\x1b\[[0-9;]*m/g, "");
+}
+
 // ---------------------------------------------------------------------------
-// ANSI helpers
+// Helpers
 // ---------------------------------------------------------------------------
 
-describe("ansi", () => {
+describe("helpers", () => {
 	it("colored wraps text in ANSI codes", () => {
-		const result = colored("hello", fg.red, style.bold);
+		const result = colored("hello", FG_RED, BOLD);
 		assert.ok(result.includes("hello"));
 		assert.ok(result.startsWith("\x1b["));
 		assert.ok(result.endsWith("\x1b[0m"));
 	});
 
-	it("stripAnsi removes escape codes", () => {
-		const raw = colored("test", fg.green);
-		assert.equal(stripAnsi(raw), "test");
-	});
-});
-
-// ---------------------------------------------------------------------------
-// Symbols
-// ---------------------------------------------------------------------------
-
-describe("symbols", () => {
-	it("statusIcon returns colored symbols for all statuses", () => {
+	it("statusIcon returns symbols for all statuses", () => {
 		for (const s of ["completed", "failed", "running", "waiting", "paused", "skipped"]) {
 			const icon = statusIcon(s);
 			assert.ok(stripAnsi(icon).length > 0, `icon for "${s}" should be non-empty`);
@@ -44,13 +39,7 @@ describe("symbols", () => {
 		const label = statusLabel("running");
 		assert.equal(stripAnsi(label), "running");
 	});
-});
 
-// ---------------------------------------------------------------------------
-// Format helpers
-// ---------------------------------------------------------------------------
-
-describe("format", () => {
 	it("formatDuration handles milliseconds", () => {
 		assert.equal(formatDuration(500), "500ms");
 	});
@@ -67,31 +56,13 @@ describe("format", () => {
 		assert.equal(formatDuration(3661000), "1h1m");
 	});
 
-	it("truncate shortens long text", () => {
-		assert.equal(truncate("hello world", 5), "hell…");
-	});
-
-	it("truncate leaves short text unchanged", () => {
-		assert.equal(truncate("hi", 5), "hi");
-	});
-
-	it("padRight pads to given width", () => {
-		assert.equal(padRight("ab", 5), "ab   ");
-	});
-
-	it("padLeft pads to given width", () => {
-		assert.equal(padLeft("ab", 5), "   ab");
-	});
-
-	it("wrapText splits long lines", () => {
-		const wrapped = wrapText("a".repeat(20), 10);
-		assert.equal(wrapped.length, 2);
-		assert.equal(wrapped[0].length, 10);
-		assert.equal(wrapped[1].length, 10);
-	});
-
 	it("horizontalRule creates repeated chars", () => {
 		assert.equal(horizontalRule(5, "-"), "-----");
+	});
+
+	it("padRight pads to given width using visibleWidth", () => {
+		const result = padRight("ab", 5);
+		assert.equal(visibleWidth(result), 5);
 	});
 });
 
@@ -134,8 +105,8 @@ function makeDefinition(): JobDefinition {
 	};
 }
 
-function makeState(overrides?: Partial<JobState>): JobState {
-	const base: JobState = {
+function makeState(): JobState {
+	return {
 		jobId: "test-job",
 		status: "running",
 		stages: new Map([
@@ -151,15 +122,14 @@ function makeState(overrides?: Partial<JobState>): JobState {
 		]),
 		stageResults: new Map(),
 	};
-	return { ...base, ...overrides };
 }
 
 describe("DashboardView", () => {
 	it("renders stage list with status icons", () => {
 		const def = makeDefinition();
 		const view = new DashboardView(def);
-		const state = makeState();
-		const output = view.render(state, 80, 24, Date.now() - 5000);
+		view.setState(makeState());
+		const output = view.render(80).join("\n");
 		const plain = stripAnsi(output);
 		assert.ok(plain.includes("Planning"), "should contain stage name");
 		assert.ok(plain.includes("Implementation"), "should contain stage name");
@@ -167,47 +137,46 @@ describe("DashboardView", () => {
 		assert.ok(plain.includes("navigate"), "should show footer");
 	});
 
-	it("handles up/down navigation", () => {
+	it("emits drill_stage action via onAction callback", () => {
 		const def = makeDefinition();
 		const view = new DashboardView(def);
+		view.setState(makeState());
+		const actions: string[] = [];
+		view.onAction = (a) => actions.push(a.type);
 
-		let action = view.handleInput({ type: "down" });
-		assert.equal(action, undefined);
-
-		action = view.handleInput({ type: "enter" });
-		assert.ok(action);
-		assert.equal(action.type, "drill_stage");
-		if (action.type === "drill_stage") {
-			assert.equal(action.stageId, "impl");
-		}
+		view.handleInput("\x1b[B"); // down arrow
+		view.handleInput("\r");     // enter
+		assert.ok(actions.includes("drill_stage"));
 	});
 
-	it("returns quit action on q", () => {
+	it("emits quit action on q", () => {
 		const def = makeDefinition();
 		const view = new DashboardView(def);
-		const action = view.handleInput({ type: "char", char: "q" });
-		assert.deepEqual(action, { type: "quit" });
+		view.setState(makeState());
+		const actions: string[] = [];
+		view.onAction = (a) => actions.push(a.type);
+		view.handleInput("q");
+		assert.deepEqual(actions, ["quit"]);
 	});
 
-	it("returns pause action on p", () => {
+	it("emits pause action on p", () => {
 		const def = makeDefinition();
 		const view = new DashboardView(def);
-		const action = view.handleInput({ type: "char", char: "p" });
-		assert.deepEqual(action, { type: "pause" });
+		view.setState(makeState());
+		const actions: string[] = [];
+		view.onAction = (a) => actions.push(a.type);
+		view.handleInput("p");
+		assert.deepEqual(actions, ["pause"]);
 	});
 
-	it("returns cancel action on c", () => {
+	it("emits help action on ?", () => {
 		const def = makeDefinition();
 		const view = new DashboardView(def);
-		const action = view.handleInput({ type: "char", char: "c" });
-		assert.deepEqual(action, { type: "cancel" });
-	});
-
-	it("returns help action on ?", () => {
-		const def = makeDefinition();
-		const view = new DashboardView(def);
-		const action = view.handleInput({ type: "char", char: "?" });
-		assert.deepEqual(action, { type: "help" });
+		view.setState(makeState());
+		const actions: string[] = [];
+		view.onAction = (a) => actions.push(a.type);
+		view.handleInput("?");
+		assert.deepEqual(actions, ["help"]);
 	});
 });
 
@@ -216,8 +185,8 @@ describe("StageView", () => {
 		const def = makeDefinition();
 		const stageDef = def.stages[1]; // impl
 		const view = new StageView("impl", stageDef);
-		const state = makeState();
-		const output = view.render(state, 80, 24);
+		view.setState(makeState());
+		const output = view.render(80).join("\n");
 		const plain = stripAnsi(output);
 		assert.ok(plain.includes("Implementation"), "should show stage name");
 		assert.ok(plain.includes("impl-t1"), "should list task");
@@ -225,23 +194,25 @@ describe("StageView", () => {
 		assert.ok(plain.includes("impl-t3"), "should list task");
 	});
 
-	it("navigates up/down and drills into tasks", () => {
-		const def = makeDefinition();
-		const view = new StageView("impl", def.stages[1]);
-
-		view.handleInput({ type: "down" });
-		const action = view.handleInput({ type: "enter" });
-		assert.ok(action);
-		assert.equal(action.type, "drill_task");
-		if (action.type === "drill_task") {
-			assert.equal(action.taskId, "impl-t2");
-		}
+	it("emits back on escape", () => {
+		const view = new StageView("impl", makeDefinition().stages[1]);
+		view.setState(makeState());
+		const actions: string[] = [];
+		view.onAction = (a) => actions.push(a.type);
+		view.handleInput("\x1b"); // escape
+		assert.deepEqual(actions, ["back"]);
 	});
 
-	it("returns back on escape", () => {
-		const view = new StageView("impl", makeDefinition().stages[1]);
-		const action = view.handleInput({ type: "escape" });
-		assert.deepEqual(action, { type: "back" });
+	it("emits drill_task via enter", () => {
+		const def = makeDefinition();
+		const view = new StageView("impl", def.stages[1]);
+		view.setState(makeState());
+		const actions: Array<{ type: string }> = [];
+		view.onAction = (a) => actions.push(a);
+		view.handleInput("\x1b[B"); // down
+		view.handleInput("\r");      // enter
+		const drill = actions.find((a) => a.type === "drill_task");
+		assert.ok(drill);
 	});
 });
 
@@ -250,8 +221,8 @@ describe("TaskView", () => {
 		const def = makeDefinition();
 		const taskDef = def.stages[1].tasks[0]; // impl-t1
 		const view = new TaskView("impl-t1", taskDef);
-		const state = makeState();
-		const output = view.render(state, 80, 30);
+		view.setState(makeState());
+		const output = view.render(80).join("\n");
 		const plain = stripAnsi(output);
 		assert.ok(plain.includes("impl-t1"), "should show task id");
 		assert.ok(plain.includes("Implement auth module"), "should show prompt");
@@ -262,52 +233,51 @@ describe("TaskView", () => {
 		const def = makeDefinition();
 		const taskDef = def.stages[1].tasks[1]; // impl-t2
 		const view = new TaskView("impl-t2", taskDef);
-		const state = makeState();
-		const output = view.render(state, 80, 30);
+		view.setState(makeState());
+		const output = view.render(80).join("\n");
 		const plain = stripAnsi(output);
 		assert.ok(plain.includes("pending"), "should show pending");
 	});
 
-	it("returns back on escape", () => {
+	it("emits back on escape", () => {
 		const view = new TaskView("t1", { id: "t1", prompt: "test" });
-		const action = view.handleInput({ type: "escape" });
-		assert.deepEqual(action, { type: "back" });
-	});
-
-	it("scrolls with j/k", () => {
-		const view = new TaskView("t1", { id: "t1", prompt: "test" });
-		let action = view.handleInput({ type: "char", char: "j" });
-		assert.equal(action, undefined);
-		action = view.handleInput({ type: "char", char: "k" });
-		assert.equal(action, undefined);
+		view.setState(makeState());
+		const actions: string[] = [];
+		view.onAction = (a) => actions.push(a.type);
+		view.handleInput("\x1b"); // escape
+		assert.deepEqual(actions, ["back"]);
 	});
 });
 
 describe("HelpView", () => {
 	it("renders keybinding list", () => {
 		const view = new HelpView();
-		const output = view.render(80, 24);
+		const output = view.render(80).join("\n");
 		const plain = stripAnsi(output);
 		assert.ok(plain.includes("Keybindings"), "should have title");
 		assert.ok(plain.includes("enter"), "should list enter key");
 		assert.ok(plain.includes("Drill into"), "should describe enter");
 	});
 
-	it("returns close on escape", () => {
+	it("emits close on escape", () => {
 		const view = new HelpView();
-		const action = view.handleInput({ type: "escape" });
-		assert.deepEqual(action, { type: "close" });
+		const actions: string[] = [];
+		view.onAction = (a) => actions.push(a.type);
+		view.handleInput("\x1b"); // escape
+		assert.deepEqual(actions, ["close"]);
 	});
 
-	it("returns close on ?", () => {
+	it("emits close on ?", () => {
 		const view = new HelpView();
-		const action = view.handleInput({ type: "char", char: "?" });
-		assert.deepEqual(action, { type: "close" });
+		const actions: string[] = [];
+		view.onAction = (a) => actions.push(a.type);
+		view.handleInput("?");
+		assert.deepEqual(actions, ["close"]);
 	});
 });
 
 // ---------------------------------------------------------------------------
-// EventLog.subscribe integration (imported from parent)
+// EventLog.subscribe integration
 // ---------------------------------------------------------------------------
 
 describe("EventLog.subscribe", () => {

@@ -45,7 +45,6 @@ export {
 } from "./pi-runtime.js";
 
 export { TuiApp, type TuiAppOpts } from "./tui/app.js";
-export { Screen, type KeyEvent, type InputHandler } from "./tui/screen.js";
 export { DashboardView, type DashboardAction } from "./tui/views/dashboard.js";
 export { StageView, type StageViewAction } from "./tui/views/stage.js";
 export { TaskView, type TaskViewAction } from "./tui/views/task.js";

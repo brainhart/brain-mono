@@ -12,7 +12,7 @@ import {
 	colored, horizontalRule,
 	FG_CYAN, FG_GRAY, FG_GREEN, FG_RED, FG_YELLOW, FG_WHITE, BOLD, DIM,
 } from "../helpers.js";
-import { parseNavKey, clampScroll, renderFooter } from "../keybindings.js";
+import { parseNavKey, KeyState, clampScroll, renderFooter } from "../keybindings.js";
 
 export type TranscriptEntry = {
 	role: "user" | "assistant" | "tool_call" | "tool_result" | "system" | "other";
@@ -89,6 +89,7 @@ export class TranscriptView implements Component {
 	private entries: TranscriptEntry[] = [];
 	private scrollOffset = 0;
 	private contentHeight = 0;
+	private readonly keyState = new KeyState();
 	private taskId: string;
 	private sessionId: string;
 	private loading = false;
@@ -117,7 +118,7 @@ export class TranscriptView implements Component {
 	invalidate(): void {}
 
 	handleInput(data: string): void {
-		const nav = parseNavKey(data);
+		const nav = parseNavKey(data, this.keyState);
 		if (!nav) return;
 		switch (nav.type) {
 			case "up":   this.scrollOffset = clampScroll(this.scrollOffset - 3, this.contentHeight); return;

@@ -7,4 +7,4 @@ export { EventLogView, type EventLogViewAction } from "./views/event-log.js";
 export { DagView, type DagViewAction } from "./views/dag.js";
 export { TranscriptView, type TranscriptViewAction, parseTranscript } from "./views/transcript.js";
 export { ProgressFeed } from "./views/progress-feed.js";
-export { parseNavKey, clampCursor, clampScroll, renderFooter, type NavAction } from "./keybindings.js";
+export { parseNavKey, KeyState, clampCursor, clampScroll, renderFooter, type NavAction } from "./keybindings.js";

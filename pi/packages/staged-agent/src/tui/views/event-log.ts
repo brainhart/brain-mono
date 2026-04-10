@@ -5,7 +5,7 @@ import {
 	colored, formatDuration, horizontalRule,
 	FG_CYAN, FG_GRAY, FG_GREEN, FG_RED, FG_YELLOW, FG_WHITE, BOLD, DIM,
 } from "../helpers.js";
-import { parseNavKey, clampScroll, renderFooter } from "../keybindings.js";
+import { parseNavKey, KeyState, clampScroll, renderFooter } from "../keybindings.js";
 
 export type EventLogViewAction =
 	| { type: "back" }
@@ -15,6 +15,7 @@ export type EventLogViewAction =
 export class EventLogView implements Component {
 	private events: RuntimeEvent[] = [];
 	private scrollOffset = 0;
+	private readonly keyState = new KeyState();
 	private autoScroll = true;
 	private jobStartTime = 0;
 	onAction: ((action: EventLogViewAction) => void) | undefined;
@@ -32,7 +33,7 @@ export class EventLogView implements Component {
 	invalidate(): void {}
 
 	handleInput(data: string): void {
-		const nav = parseNavKey(data);
+		const nav = parseNavKey(data, this.keyState);
 		if (nav) {
 			switch (nav.type) {
 				case "up":   this.scrollOffset = clampScroll(this.scrollOffset - 1, this.events.length); this.autoScroll = false; return;
@@ -136,6 +137,8 @@ export class EventLogView implements Component {
 				if (event.resetStages.length > 0) detail += colored(` ↻${event.resetStages.join(",")}`, FG_YELLOW);
 				return detail;
 			}
+			default:
+				return colored((event as { type: string }).type, FG_GRAY);
 		}
 	}
 }

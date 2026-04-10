@@ -6,14 +6,14 @@
  */
 
 import type { Component } from "@mariozechner/pi-tui";
-import { truncateToWidth } from "@mariozechner/pi-tui";
+import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 import type { JobState } from "../../state.js";
 import type { JobDefinition, StageId, StageDependency } from "../../types.js";
 import {
 	colored, statusIcon, horizontalRule, formatDuration,
 	FG_CYAN, FG_GRAY, FG_WHITE, FG_YELLOW, BOLD, DIM,
 } from "../helpers.js";
-import { parseNavKey, clampScroll, renderFooter } from "../keybindings.js";
+import { parseNavKey, KeyState, clampScroll, renderFooter } from "../keybindings.js";
 
 export type DagViewAction =
 	| { type: "back" }
@@ -26,6 +26,7 @@ export class DagView implements Component {
 	private state: JobState | undefined;
 	private scrollOffset = 0;
 	private contentHeight = 0;
+	private readonly keyState = new KeyState();
 	onAction: ((action: DagViewAction) => void) | undefined;
 
 	constructor(
@@ -36,7 +37,7 @@ export class DagView implements Component {
 	invalidate(): void {}
 
 	handleInput(data: string): void {
-		const nav = parseNavKey(data);
+		const nav = parseNavKey(data, this.keyState);
 		if (!nav) return;
 		switch (nav.type) {
 			case "up":   this.scrollOffset = clampScroll(this.scrollOffset - 1, this.contentHeight); return;
@@ -130,9 +131,9 @@ export class DagView implements Component {
 		const bottom = colored("└" + "─".repeat(boxWidth - 2) + "┘", FG_GRAY, DIM);
 
 		const nameStr = truncateToWidth(name, innerWidth);
-		const namePad = " ".repeat(Math.max(0, innerWidth - name.length));
+		const namePad = " ".repeat(Math.max(0, innerWidth - visibleWidth(nameStr)));
 		const infoStr = truncateToWidth(`${icon} ${status}${timeStr}`, innerWidth);
-		const infoPad = " ".repeat(Math.max(0, innerWidth - status.length - timeStr.length - 2));
+		const infoPad = " ".repeat(Math.max(0, innerWidth - visibleWidth(infoStr)));
 
 		const line1 = colored("│ ", FG_GRAY, DIM) + colored(nameStr, BOLD, FG_WHITE) + namePad + colored(" │", FG_GRAY, DIM);
 		const line2 = colored("│ ", FG_GRAY, DIM) + infoStr + infoPad + colored(" │", FG_GRAY, DIM);

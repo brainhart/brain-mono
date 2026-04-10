@@ -233,6 +233,9 @@ export class TuiApp {
 				this.helpOverlay = undefined;
 				this.syncActiveView();
 				this.tui.requestRender();
+			} else if (a.type === "quit") {
+				this.helpOverlay = undefined;
+				this.stop();
 			}
 		};
 		this.syncActiveView();

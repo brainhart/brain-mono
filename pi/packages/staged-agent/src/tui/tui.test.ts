@@ -278,6 +278,14 @@ describe("HelpView", () => {
 		view.handleInput("?");
 		assert.deepEqual(actions, ["close"]);
 	});
+
+	it("emits quit on q (not just close)", () => {
+		const view = new HelpView();
+		const actions: string[] = [];
+		view.onAction = (a) => actions.push(a.type);
+		view.handleInput("q");
+		assert.deepEqual(actions, ["quit"]);
+	});
 });
 
 // ---------------------------------------------------------------------------
@@ -412,6 +420,35 @@ describe("projectState hardening", () => {
 		const state = projectState(events);
 		assert.equal(state.tasks.has("orphan"), false);
 		assert.ok(state.stageResults.get("s"));
+	});
+});
+
+describe("parseNavKey with KeyState", () => {
+	it("gg sequence returns top", async () => {
+		const { parseNavKey, KeyState } = await import("./keybindings.js");
+		const state = new KeyState();
+		assert.equal(parseNavKey("g", state), undefined);
+		assert.ok(state.pendingG);
+		assert.deepEqual(parseNavKey("g", state), { type: "top" });
+		assert.ok(!state.pendingG);
+	});
+
+	it("g then non-g falls through to normal key parsing", async () => {
+		const { parseNavKey, KeyState } = await import("./keybindings.js");
+		const state = new KeyState();
+		parseNavKey("g", state);
+		const result = parseNavKey("j", state);
+		assert.deepEqual(result, { type: "down" }, "j should not be swallowed after g");
+	});
+
+	it("separate KeyState instances are independent", async () => {
+		const { parseNavKey, KeyState } = await import("./keybindings.js");
+		const s1 = new KeyState();
+		const s2 = new KeyState();
+		parseNavKey("g", s1);
+		assert.ok(s1.pendingG);
+		assert.ok(!s2.pendingG);
+		assert.deepEqual(parseNavKey("j", s2), { type: "down" });
 	});
 });
 

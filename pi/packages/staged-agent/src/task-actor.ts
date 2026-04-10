@@ -61,6 +61,12 @@ export class TaskActor extends Actor<TaskActorMsg> {
 		super();
 	}
 
+	protected override onDeadLetter(msg: TaskActorMsg): void {
+		if (msg.type === "session_acquired") {
+			this.pool.send({ type: "release", sessionId: msg.sessionId });
+		}
+	}
+
 	protected handle(msg: TaskActorMsg): void {
 		switch (msg.type) {
 			case "run":

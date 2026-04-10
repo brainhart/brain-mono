@@ -75,6 +75,7 @@ export class EventLog {
 			fs.closeSync(this.fd);
 			this.fd = undefined;
 		}
+		this.subscribers.clear();
 		this.closed = true;
 	}
 

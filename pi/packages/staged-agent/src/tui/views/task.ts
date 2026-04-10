@@ -6,7 +6,7 @@ import {
 	colored, statusLabel, formatDuration, horizontalRule, statusIcon,
 	FG_CYAN, FG_GRAY, FG_GREEN, FG_RED, FG_YELLOW, FG_WHITE, BOLD, DIM,
 } from "../helpers.js";
-import { parseNavKey, clampScroll, renderFooter } from "../keybindings.js";
+import { parseNavKey, KeyState, clampScroll, renderFooter } from "../keybindings.js";
 import { ProgressFeed } from "./progress-feed.js";
 
 export type TaskViewAction =
@@ -19,6 +19,7 @@ export type TaskViewAction =
 export class TaskView implements Component {
 	private scrollOffset = 0;
 	private contentHeight = 0;
+	private readonly keyState = new KeyState();
 	private state: JobState | undefined;
 	private breadcrumb: string;
 	onAction: ((action: TaskViewAction) => void) | undefined;
@@ -35,7 +36,7 @@ export class TaskView implements Component {
 	invalidate(): void {}
 
 	handleInput(data: string): void {
-		const nav = parseNavKey(data);
+		const nav = parseNavKey(data, this.keyState);
 		if (nav) {
 			switch (nav.type) {
 				case "up":   case "back": {

@@ -6,7 +6,7 @@ import {
 	colored, statusIcon, statusLabel, formatDuration, horizontalRule, padRight,
 	FG_CYAN, FG_GRAY, FG_YELLOW, FG_RED, FG_GREEN, FG_WHITE, BOLD, DIM,
 } from "../helpers.js";
-import { parseNavKey, clampCursor, renderFooter } from "../keybindings.js";
+import { parseNavKey, KeyState, clampCursor, renderFooter } from "../keybindings.js";
 
 export type DashboardAction =
 	| { type: "drill_stage"; stageId: StageId }
@@ -21,6 +21,7 @@ export type DashboardAction =
 export class DashboardView implements Component {
 	private cursor = 0;
 	private stageIds: StageId[];
+	private readonly keyState = new KeyState();
 	private state: JobState | undefined;
 	private startTime = Date.now();
 	onAction: ((action: DashboardAction) => void) | undefined;
@@ -30,11 +31,19 @@ export class DashboardView implements Component {
 	}
 
 	setStartTime(t: number): void { this.startTime = t; }
-	setState(state: JobState): void { this.state = state; }
+
+	setState(state: JobState): void {
+		this.state = state;
+		const dynStageIds = [...state.stages.keys()].filter((id) => !this.stageIds.includes(id));
+		if (dynStageIds.length > 0) {
+			this.stageIds = [...this.definition.stages.map((s) => s.id), ...dynStageIds];
+		}
+	}
+
 	invalidate(): void {}
 
 	handleInput(data: string): void {
-		const nav = parseNavKey(data);
+		const nav = parseNavKey(data, this.keyState);
 		if (nav) {
 			switch (nav.type) {
 				case "up":    this.cursor = clampCursor(this.cursor - 1, this.stageIds.length); return;
@@ -76,11 +85,6 @@ export class DashboardView implements Component {
 		}
 		lines.push(horizontalRule(width));
 		lines.push("");
-
-		const dynStageIds = [...state.stages.keys()].filter((id) => !this.stageIds.includes(id));
-		if (dynStageIds.length > 0) {
-			this.stageIds = [...this.definition.stages.map((s) => s.id), ...dynStageIds];
-		}
 
 		for (let i = 0; i < this.stageIds.length; i++) {
 			const sid = this.stageIds[i];

@@ -3,7 +3,7 @@ import { matchesKey } from "@mariozechner/pi-tui";
 import { colored, horizontalRule, FG_CYAN, FG_GRAY, FG_WHITE, BOLD, DIM } from "../helpers.js";
 import { renderFooter } from "../keybindings.js";
 
-export type HelpAction = { type: "close" };
+export type HelpAction = { type: "close" } | { type: "quit" };
 
 const SECTIONS: Array<{ title: string; keys: Array<[string, string]> }> = [
 	{
@@ -56,7 +56,9 @@ export class HelpView implements Component {
 	invalidate(): void {}
 
 	handleInput(data: string): void {
-		if (matchesKey(data, "escape") || matchesKey(data, "enter") || matchesKey(data, "?") || matchesKey(data, "q")) {
+		if (matchesKey(data, "q")) {
+			this.onAction?.({ type: "quit" });
+		} else if (matchesKey(data, "escape") || matchesKey(data, "enter") || matchesKey(data, "?")) {
 			this.onAction?.({ type: "close" });
 		}
 	}

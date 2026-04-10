@@ -6,7 +6,7 @@ import {
 	colored, statusIcon, statusLabel, formatDuration, horizontalRule, padRight,
 	FG_CYAN, FG_GRAY, FG_YELLOW, FG_RED, FG_WHITE, BOLD, DIM,
 } from "../helpers.js";
-import { parseNavKey, clampCursor, renderFooter } from "../keybindings.js";
+import { parseNavKey, KeyState, clampCursor, renderFooter } from "../keybindings.js";
 
 export type StageViewAction =
 	| { type: "back" }
@@ -17,6 +17,7 @@ export type StageViewAction =
 export class StageView implements Component {
 	private cursor = 0;
 	private taskIds: TaskId[];
+	private readonly keyState = new KeyState();
 	private state: JobState | undefined;
 	private breadcrumb: string;
 	onAction: ((action: StageViewAction) => void) | undefined;
@@ -34,7 +35,7 @@ export class StageView implements Component {
 	invalidate(): void {}
 
 	handleInput(data: string): void {
-		const nav = parseNavKey(data);
+		const nav = parseNavKey(data, this.keyState);
 		if (!nav) return;
 		switch (nav.type) {
 			case "up":    this.cursor = clampCursor(this.cursor - 1, this.taskIds.length); return;

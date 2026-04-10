@@ -128,13 +128,14 @@ export class JobRunner {
 	/**
 	 * Recover a job from a previously-written event log.
 	 *
-	 * Replays the log to rebuild `JobState`, then returns the projected
-	 * state so the caller can inspect where the job left off.
+	 * Replays the log to rebuild `JobState`, then filters the definition
+	 * to only include stages that haven't completed yet. The returned
+	 * runner operates on this reduced DAG — completed stages are excluded
+	 * from the definition entirely, not skipped at runtime.
 	 *
-	 * If the job was still running when the process crashed, the caller
-	 * can construct a new `JobRunner` and re-run — completed stages won't
-	 * re-execute because the DAGScheduler will see them in the event log
-	 * and skip them.
+	 * Note: `JobResult.stageResults` from the resumed run will only
+	 * contain results for stages executed in this run, not prior ones.
+	 * Use `projectState()` on the full event log for a complete picture.
 	 */
 	static recover(
 		eventLogPath: string,

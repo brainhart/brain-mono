@@ -6,7 +6,7 @@
  * rendering, and status messages with spinners.
  */
 
-import { Box, Container, Markdown, type MarkdownTheme, Spacer, Text, type Component } from "@mariozechner/pi-tui";
+import { Box, Container, Spacer, Text, type Component } from "@mariozechner/pi-tui";
 import type { TaskProgress } from "../../types.js";
 
 const ESC = "\x1b[";

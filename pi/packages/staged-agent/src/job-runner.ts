@@ -175,6 +175,10 @@ export class JobRunner {
 		return this.defaultProfile;
 	}
 
+	peekNextStageCounter(): number {
+		return this.stageCounter + 1;
+	}
+
 	/**
 	 * Signal that no more work will be added. The job will complete (or
 	 * fail) once all currently queued stages finish. Only meaningful in
@@ -250,6 +254,7 @@ export class JobRunner {
 		const runner = new JobRunner(resumeDef, executor, {
 			eventLogPath,
 			isRecovery: true,
+			interactive: false,
 		});
 
 		return { state, alreadyTerminal: false, runner };

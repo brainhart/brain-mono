@@ -27,6 +27,7 @@ export class DashboardView implements Component {
 	private state: JobState | undefined;
 	private startTime = Date.now();
 	private _interactive = false;
+	private readonly extraStageDefs = new Map<StageId, import("../../types.js").StageDefinition>();
 	onAction: ((action: DashboardAction) => void) | undefined;
 
 	constructor(private readonly definition: JobDefinition) {
@@ -37,12 +38,24 @@ export class DashboardView implements Component {
 
 	setStartTime(t: number): void { this.startTime = t; }
 
+	addStageDefs(defs: Map<string, import("../../types.js").StageDefinition>): void {
+		for (const [id, def] of defs) {
+			this.extraStageDefs.set(id, def);
+		}
+	}
+
 	setState(state: JobState): void {
 		this.state = state;
-		const dynStageIds = [...state.stages.keys()].filter((id) => !this.stageIds.includes(id));
+		const knownSet = new Set(this.stageIds);
+		const dynStageIds = [...state.stages.keys()].filter((id) => !knownSet.has(id));
 		if (dynStageIds.length > 0) {
-			this.stageIds = [...this.definition.stages.map((s) => s.id), ...dynStageIds];
+			this.stageIds = [...this.stageIds, ...dynStageIds];
 		}
+		this.cursor = clampCursor(this.cursor, this.stageIds.length);
+	}
+
+	private lookupStageDef(stageId: StageId): import("../../types.js").StageDefinition | undefined {
+		return this.definition.stages.find((s) => s.id === stageId) ?? this.extraStageDefs.get(stageId);
 	}
 
 	invalidate(): void {}
@@ -129,7 +142,7 @@ export class DashboardView implements Component {
 	): string {
 		const status = ss?.status ?? "waiting";
 		const icon = statusIcon(status);
-		const stageDef = this.definition.stages.find((s) => s.id === stageId);
+		const stageDef = this.lookupStageDef(stageId);
 		const name = stageDef?.name ?? stageId;
 		const taskIds = stageDef?.tasks.map((t) => t.id) ?? [];
 		const attempt = ss?.attemptCount ?? 0;

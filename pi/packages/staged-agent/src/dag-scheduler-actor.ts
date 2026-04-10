@@ -290,6 +290,17 @@ export class DAGSchedulerActor extends Actor<DAGSchedulerActorMsg> {
 			await this.evaluateTransitions(stageId, results);
 		} catch (err) {
 			const msg = err instanceof Error ? err.message : String(err);
+			if (this.interactive) {
+				this.log.append({
+					type: "stage_failed",
+					jobId: this.jobId,
+					stageId,
+					error: `Transition function failed: ${msg}`,
+					timestamp: Date.now(),
+				});
+				this.scheduleReady();
+				return;
+			}
 			this.log.append({
 				type: "job_failed",
 				jobId: this.jobId,
@@ -486,20 +497,33 @@ export class DAGSchedulerActor extends Actor<DAGSchedulerActorMsg> {
 		if (this.terminated) return;
 
 		const addedIds: StageId[] = [];
-		for (const stage of stages) {
-			if (!this.dag.getStage(stage.id)) {
-				this.dag.addStage(stage);
-				this.waitingStages.add(stage.id);
-				addedIds.push(stage.id);
-			}
-		}
-
 		const depEdges: Array<{ parent: StageId; child: StageId }> = [];
-		for (const dep of dependencies) {
-			if (!this.dag.getDependency(dep.parentStageId, dep.childStageId)) {
-				this.dag.addDependency(dep.parentStageId, dep.childStageId, dep.transition);
-				depEdges.push({ parent: dep.parentStageId, child: dep.childStageId });
+
+		try {
+			for (const stage of stages) {
+				if (!this.dag.getStage(stage.id)) {
+					this.dag.addStage(stage);
+					this.waitingStages.add(stage.id);
+					addedIds.push(stage.id);
+				}
 			}
+
+			for (const dep of dependencies) {
+				if (!this.dag.getDependency(dep.parentStageId, dep.childStageId)) {
+					this.dag.addDependency(dep.parentStageId, dep.childStageId, dep.transition);
+					depEdges.push({ parent: dep.parentStageId, child: dep.childStageId });
+				}
+			}
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err);
+			this.log.append({
+				type: "stage_failed",
+				jobId: this.jobId,
+				stageId: addedIds[addedIds.length - 1] ?? "unknown",
+				error: `Failed to add stages: ${msg}`,
+				timestamp: Date.now(),
+			});
+			return;
 		}
 
 		if (addedIds.length > 0) {

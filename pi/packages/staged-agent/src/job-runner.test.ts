@@ -1043,3 +1043,206 @@ describe("JobRunner — interactive mode", () => {
 		assert.ok(taskIds.some((id) => id.includes("execute")));
 	});
 });
+
+describe("JobRunner — hardening", () => {
+	it("handles duplicate stage IDs in submit() gracefully", async () => {
+		const def: JobDefinition = {
+			stages: [],
+			dependencies: [],
+		};
+		const runner = new JobRunner(def, successExecutor, { interactive: true });
+		const promise = runner.run();
+
+		await new Promise((r) => setTimeout(r, 50));
+		runner.submit([makeStage("dup")]);
+		await new Promise((r) => setTimeout(r, 100));
+		runner.submit([makeStage("dup")]);
+		await new Promise((r) => setTimeout(r, 100));
+
+		runner.finish();
+		const result = await promise;
+		assert.equal(result.status, "completed");
+		assert.ok(result.stageResults.has("dup"));
+	});
+
+	it("survives transition failure in interactive mode", async () => {
+		const def: JobDefinition = {
+			stages: [],
+			dependencies: [],
+		};
+		const executor: TaskExecutor = async () => ({
+			status: "success",
+			summary: "done",
+		});
+
+		const runner = new JobRunner(def, executor, { interactive: true });
+		const promise = runner.run();
+
+		await new Promise((r) => setTimeout(r, 50));
+
+		runner.submit(
+			[makeStage("s1"), makeStage("s2")],
+			[{
+				parentStageId: "s1",
+				childStageId: "s2",
+				transition: () => { throw new Error("transition boom"); },
+			}],
+		);
+
+		await new Promise((r) => setTimeout(r, 200));
+		assert.equal(runner.getJobStatus(), "idle");
+
+		runner.submit([makeStage("recovery")]);
+		await new Promise((r) => setTimeout(r, 200));
+
+		runner.finish();
+		const result = await promise;
+
+		assert.ok(result.stageResults.has("recovery"));
+	});
+
+	it("cancel works in interactive idle state", async () => {
+		const def: JobDefinition = {
+			stages: [],
+			dependencies: [],
+		};
+		const runner = new JobRunner(def, successExecutor, { interactive: true });
+		const promise = runner.run();
+
+		await new Promise((r) => setTimeout(r, 50));
+		assert.equal(runner.getJobStatus(), "idle");
+
+		runner.cancel();
+		const result = await promise;
+		assert.equal(result.status, "failed");
+		assert.ok(result.error?.includes("cancel"));
+	});
+
+	it("pause and resume work in interactive mode", async () => {
+		const def: JobDefinition = {
+			stages: [],
+			dependencies: [],
+		};
+		const order: string[] = [];
+		const executor: TaskExecutor = async (task) => {
+			order.push(task.id);
+			return { status: "success", summary: "done" };
+		};
+
+		const runner = new JobRunner(def, executor, { interactive: true });
+		const promise = runner.run();
+
+		await new Promise((r) => setTimeout(r, 50));
+		runner.submit([makeStage("before-pause")]);
+		await new Promise((r) => setTimeout(r, 100));
+
+		runner.pause("testing");
+		runner.submit([makeStage("while-paused")]);
+		await new Promise((r) => setTimeout(r, 100));
+
+		assert.equal(runner.getJobStatus(), "paused");
+
+		runner.resume();
+		await new Promise((r) => setTimeout(r, 200));
+
+		runner.finish();
+		const result = await promise;
+
+		assert.equal(result.status, "completed");
+		assert.ok(order.includes("before-pause-task"));
+		assert.ok(order.includes("while-paused-task"));
+	});
+
+	it("finish while stages are running waits for completion", async () => {
+		const def: JobDefinition = {
+			stages: [],
+			dependencies: [],
+		};
+		const executor: TaskExecutor = async () => {
+			await new Promise((r) => setTimeout(r, 200));
+			return { status: "success", summary: "done" };
+		};
+
+		const runner = new JobRunner(def, executor, { interactive: true });
+		const promise = runner.run();
+
+		await new Promise((r) => setTimeout(r, 50));
+		runner.submit([makeStage("slow-task")]);
+		await new Promise((r) => setTimeout(r, 20));
+
+		runner.finish();
+
+		const result = await promise;
+		assert.equal(result.status, "completed");
+		assert.ok(result.stageResults.has("slow-task"));
+	});
+
+	it("recover() creates a non-interactive runner", async () => {
+		const tmpFile = (await import("node:path")).join(
+			(await import("node:os")).tmpdir(),
+			`staged-agent-recover-interactive-${Date.now()}.ndjson`,
+		);
+
+		const def: JobDefinition = {
+			id: "recover-interactive-test",
+			stages: [makeStage("s1"), makeStage("s2")],
+			dependencies: [
+				{ parentStageId: "s1", childStageId: "s2" },
+			],
+		};
+
+		const log = new (await import("./event-log.js")).EventLog(tmpFile);
+		log.append({
+			type: "job_submitted",
+			jobId: "recover-interactive-test",
+			stageIds: ["s1", "s2"],
+			timestamp: 1,
+		});
+		log.append({
+			type: "stage_submitted",
+			jobId: "recover-interactive-test",
+			stageId: "s1",
+			timestamp: 2,
+		});
+		log.append({
+			type: "stage_completed",
+			jobId: "recover-interactive-test",
+			stageId: "s1",
+			timestamp: 3,
+		});
+		log.close();
+
+		const recovered = JobRunner.recover(tmpFile, def, successExecutor);
+		assert.equal(recovered.alreadyTerminal, false);
+		if (!recovered.alreadyTerminal) {
+			const result = await recovered.runner.run();
+			assert.equal(result.status, "completed");
+		}
+
+		try { (await import("node:fs")).unlinkSync(tmpFile); } catch { /* noop */ }
+	});
+
+	it("multiple rapid submissions don't corrupt state", async () => {
+		const def: JobDefinition = {
+			stages: [],
+			dependencies: [],
+		};
+		const runner = new JobRunner(def, successExecutor, { interactive: true });
+		const promise = runner.run();
+
+		await new Promise((r) => setTimeout(r, 50));
+
+		for (let i = 0; i < 10; i++) {
+			runner.submit([makeStage(`rapid-${i}`)]);
+		}
+
+		await new Promise((r) => setTimeout(r, 300));
+		runner.finish();
+
+		const result = await promise;
+		assert.equal(result.status, "completed");
+		for (let i = 0; i < 10; i++) {
+			assert.ok(result.stageResults.has(`rapid-${i}`), `Missing rapid-${i}`);
+		}
+	});
+});

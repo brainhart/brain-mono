@@ -55,6 +55,8 @@ export class TuiApp {
 	private readonly cwd: string;
 	private readonly interactive: boolean;
 	private readonly profiles: JobProfile[];
+	private readonly profilesExplicit: boolean;
+	private readonly dynamicStageDefs = new Map<string, import("../types.js").StageDefinition>();
 	private nextStageNum = 1;
 	private state: JobState;
 	private viewStack: ActiveView[];
@@ -74,6 +76,7 @@ export class TuiApp {
 		this.tui = new TUI(this.terminal);
 		this.cwd = opts?.cwd ?? process.cwd();
 		this.interactive = opts?.interactive ?? false;
+		this.profilesExplicit = opts?.profiles !== undefined;
 		this.profiles = opts?.profiles ?? [];
 		this.startTime = Date.now();
 
@@ -156,7 +159,10 @@ export class TuiApp {
 	private updateViewStates(): void {
 		for (const entry of this.viewStack) {
 			switch (entry.type) {
-				case "dashboard": entry.view.setState(this.state); break;
+				case "dashboard":
+					entry.view.addStageDefs(this.dynamicStageDefs);
+					entry.view.setState(this.state);
+					break;
 				case "stage": entry.view.setState(this.state); break;
 				case "task": entry.view.setState(this.state); break;
 				case "event_log": entry.view.setEvents(this.runner.getEventLog().getEvents()); break;
@@ -168,7 +174,7 @@ export class TuiApp {
 	private handleDashboardAction(action: import("./views/dashboard.js").DashboardAction): void {
 		switch (action.type) {
 			case "drill_stage": {
-				const stageDef = this.definition.stages.find((s) => s.id === action.stageId);
+				const stageDef = this.findStageDef(action.stageId);
 				const name = stageDef?.name ?? action.stageId;
 				const breadcrumb = `Job → ${name}`;
 				const view = new StageView(action.stageId, stageDef, breadcrumb);
@@ -425,6 +431,11 @@ export class TuiApp {
 				return;
 			}
 			this.textPromptOverlay = undefined;
+			const counter = this.runner.peekNextStageCounter();
+			const { stages } = profile.generate(a.value, counter);
+			for (const s of stages) {
+				this.dynamicStageDefs.set(s.id, s);
+			}
 			this.runner.submitTask(a.value, profile);
 			this.syncActiveView();
 			this.tui.requestRender();
@@ -435,6 +446,7 @@ export class TuiApp {
 	}
 
 	private get availableProfiles(): JobProfile[] {
+		if (this.profilesExplicit) return this.profiles;
 		return this.profiles.length > 0 ? this.profiles : builtinProfiles;
 	}
 
@@ -496,8 +508,18 @@ export class TuiApp {
 		}
 	}
 
+	private findStageDef(stageId: StageId): import("../types.js").StageDefinition | undefined {
+		const staticDef = this.definition.stages.find((s) => s.id === stageId);
+		if (staticDef) return staticDef;
+		return this.dynamicStageDefs.get(stageId);
+	}
+
 	private findTaskDef(taskId: TaskId): TaskDefinition | undefined {
 		for (const stage of this.definition.stages) {
+			const td = stage.tasks.find((t) => t.id === taskId);
+			if (td) return td;
+		}
+		for (const [, stage] of this.dynamicStageDefs) {
 			const td = stage.tasks.find((t) => t.id === taskId);
 			if (td) return td;
 		}

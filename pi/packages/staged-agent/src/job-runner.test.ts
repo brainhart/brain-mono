@@ -32,13 +32,21 @@ const successExecutor: TaskExecutor = async () => ({
 	summary: "done",
 });
 
+function batchRunner(
+	def: JobDefinition,
+	executor: TaskExecutor,
+	opts?: Partial<import("./job-runner.js").JobRunnerOpts>,
+): JobRunner {
+	return new JobRunner(def, executor, { interactive: false, ...opts });
+}
+
 describe("JobRunner (actor-based)", () => {
 	it("runs a single-stage job", async () => {
 		const def: JobDefinition = {
 			stages: [makeStage("plan")],
 			dependencies: [],
 		};
-		const result = await new JobRunner(def, successExecutor).run();
+		const result = await batchRunner(def, successExecutor).run();
 		assert.equal(result.status, "completed");
 		assert.equal(result.stageResults.size, 1);
 		assert.ok(result.stageResults.has("plan"));
@@ -61,7 +69,7 @@ describe("JobRunner (actor-based)", () => {
 			order.push(task.id);
 			return { status: "success", summary: "done" };
 		};
-		const result = await new JobRunner(def, executor).run();
+		const result = await batchRunner(def, executor).run();
 		assert.equal(result.status, "completed");
 		assert.deepEqual(order, [
 			"plan-task",
@@ -85,7 +93,7 @@ describe("JobRunner (actor-based)", () => {
 				{ parentStageId: "impl-b", childStageId: "merge" },
 			],
 		};
-		const result = await new JobRunner(def, successExecutor).run();
+		const result = await batchRunner(def, successExecutor).run();
 		assert.equal(result.status, "completed");
 		assert.equal(result.stageResults.size, 4);
 	});
@@ -101,7 +109,7 @@ describe("JobRunner (actor-based)", () => {
 			if (task.id === "implement-task") throw new Error("compile error");
 			return { status: "success", summary: "done" };
 		};
-		const result = await new JobRunner(def, executor).run();
+		const result = await batchRunner(def, executor).run();
 		assert.equal(result.status, "failed");
 		assert.ok(result.error);
 	});
@@ -119,7 +127,7 @@ describe("JobRunner (actor-based)", () => {
 			if (attemptCount < 3) throw new Error("transient");
 			return { status: "success", summary: "done" };
 		};
-		const result = await new JobRunner(def, executor).run();
+		const result = await batchRunner(def, executor).run();
 		assert.equal(result.status, "completed");
 		assert.equal(attemptCount, 3);
 	});
@@ -137,7 +145,7 @@ describe("JobRunner (actor-based)", () => {
 			if (callCount < 3) throw new Error("flaky");
 			return { status: "success", summary: "ok" };
 		};
-		const result = await new JobRunner(def, executor).run();
+		const result = await batchRunner(def, executor).run();
 		assert.equal(result.status, "completed");
 		assert.equal(callCount, 3);
 	});
@@ -172,7 +180,7 @@ describe("JobRunner (actor-based)", () => {
 			return { status: "success", summary: "done" };
 		};
 
-		const result = await new JobRunner(def, executor).run();
+		const result = await batchRunner(def, executor).run();
 		assert.equal(result.status, "completed");
 		assert.ok(result.stageResults.has("finalize"));
 		assert.deepEqual(order, [
@@ -187,7 +195,7 @@ describe("JobRunner (actor-based)", () => {
 			stages: [makeStage("plan")],
 			dependencies: [],
 		};
-		const runner = new JobRunner(def, successExecutor);
+		const runner = batchRunner(def, successExecutor);
 		await runner.run();
 		const events = runner.getEventLog().getEvents();
 		assert.ok(events.length > 0);
@@ -221,7 +229,7 @@ describe("JobRunner (actor-based)", () => {
 			if (task.id === "a-task") throw new Error("fail");
 			return { status: "success", summary: "done" };
 		};
-		const result = await new JobRunner(def, executor).run();
+		const result = await batchRunner(def, executor).run();
 		assert.equal(result.status, "failed");
 		assert.ok(result.error?.includes("a"));
 	});
@@ -238,7 +246,7 @@ describe("JobRunner (actor-based)", () => {
 			count++;
 			return { status: "success", summary: `review ${count}` };
 		};
-		const result = await new JobRunner(def, executor).run();
+		const result = await batchRunner(def, executor).run();
 		assert.equal(result.status, "completed");
 		assert.equal(count, 3);
 		assert.equal(result.stageResults.get("review")?.length, 3);
@@ -259,7 +267,7 @@ describe("JobRunner (actor-based)", () => {
 			}
 			return { status: "success", summary: "winner" };
 		};
-		const result = await new JobRunner(def, executor).run();
+		const result = await batchRunner(def, executor).run();
 		assert.equal(result.status, "completed");
 	});
 
@@ -278,7 +286,7 @@ describe("JobRunner (actor-based)", () => {
 			if (idx <= 2) return { status: "success", summary: "yes" };
 			return { status: "failure", summary: "no" };
 		};
-		const result = await new JobRunner(def, executor).run();
+		const result = await batchRunner(def, executor).run();
 		assert.equal(result.status, "completed");
 	});
 
@@ -296,7 +304,7 @@ describe("JobRunner (actor-based)", () => {
 			if (task.id === "bad-stage-task") throw new Error("boom");
 			return { status: "success", summary: "ok" };
 		};
-		const result = await new JobRunner(def, executor).run();
+		const result = await batchRunner(def, executor).run();
 		assert.equal(result.status, "failed");
 		assert.ok(result.stageResults.has("ok-stage"));
 	});
@@ -310,7 +318,7 @@ describe("JobRunner (actor-based)", () => {
 			await new Promise((r) => setTimeout(r, 5000));
 			return { status: "success", summary: "done" };
 		};
-		const runner = new JobRunner(def, executor);
+		const runner = batchRunner(def, executor);
 		const promise = runner.run();
 
 		await new Promise((r) => setTimeout(r, 50));
@@ -326,7 +334,7 @@ describe("JobRunner (actor-based)", () => {
 			stages: [],
 			dependencies: [],
 		};
-		const result = await new JobRunner(def, successExecutor).run();
+		const result = await batchRunner(def, successExecutor).run();
 		assert.equal(result.status, "completed");
 		assert.equal(result.stageResults.size, 0);
 	});
@@ -357,7 +365,7 @@ describe("JobRunner — pause/resume", () => {
 			order.push(task.id);
 			return { status: "success", summary: "done" };
 		};
-		const runner = new JobRunner(def, executor);
+		const runner = batchRunner(def, executor);
 		const promise = runner.run();
 
 		await new Promise((r) => setTimeout(r, 100));
@@ -392,7 +400,7 @@ describe("JobRunner — task collaboration", () => {
 			return { status: "success", summary: "guided success" };
 		};
 
-		const runner = new JobRunner(def, executor);
+		const runner = batchRunner(def, executor);
 		const runPromise = runner.run();
 
 		await new Promise((r) => setTimeout(r, 20));
@@ -469,7 +477,7 @@ describe("JobRunner — review loop via resetStage", () => {
 			return { status: "success", summary: "done" };
 		};
 
-		const result = await new JobRunner(def, executor).run();
+		const result = await batchRunner(def, executor).run();
 		assert.equal(result.status, "completed");
 		assert.equal(reviewCount, 3);
 		assert.ok(result.stageResults.has("finalize"));
@@ -491,7 +499,7 @@ describe("JobRunner — inspection views", () => {
 				{ parentStageId: "plan", childStageId: "impl" },
 			],
 		};
-		const runner = new JobRunner(def, successExecutor);
+		const runner = batchRunner(def, successExecutor);
 		await runner.run();
 		const snapshot = runner.inspect();
 		assert.ok(snapshot);
@@ -519,7 +527,7 @@ describe("JobRunner — recovery from event log", () => {
 			],
 		};
 
-		const result = await new JobRunner(def, successExecutor, {
+		const result = await batchRunner(def, successExecutor, {
 			eventLogPath: tmpFile,
 		}).run();
 		assert.equal(result.status, "completed");
@@ -607,7 +615,7 @@ describe("JobRunner — task execution timeout", () => {
 			await new Promise((r) => setTimeout(r, 5000));
 			return { status: "success", summary: "too late" };
 		};
-		const result = await new JobRunner(def, executor).run();
+		const result = await batchRunner(def, executor).run();
 		assert.equal(result.status, "failed");
 		assert.ok(result.error?.includes("timed out") || result.error?.includes("failed"));
 	});
@@ -619,7 +627,7 @@ describe("JobRunner — task execution timeout", () => {
 			],
 			dependencies: [],
 		};
-		const result = await new JobRunner(def, successExecutor).run();
+		const result = await batchRunner(def, successExecutor).run();
 		assert.equal(result.status, "completed");
 	});
 });
@@ -639,7 +647,7 @@ describe("JobRunner — acquire timeout", () => {
 			await new Promise((r) => setTimeout(r, 5000));
 			return { status: "success", summary: "done" };
 		};
-		const result = await new JobRunner(def, executor, {
+		const result = await batchRunner(def, executor, {
 			concurrency: 1,
 		}).run();
 		assert.equal(result.status, "failed");
@@ -657,7 +665,7 @@ describe("JobRunner — empty stage", () => {
 				{ parentStageId: "empty", childStageId: "after" },
 			],
 		};
-		const result = await new JobRunner(def, successExecutor).run();
+		const result = await batchRunner(def, successExecutor).run();
 		assert.equal(result.status, "completed");
 		assert.ok(result.stageResults.has("after"));
 	});
@@ -677,7 +685,7 @@ describe("JobRunner — transition throws", () => {
 				},
 			],
 		};
-		const result = await new JobRunner(def, successExecutor).run();
+		const result = await batchRunner(def, successExecutor).run();
 		assert.equal(result.status, "failed");
 		assert.ok(result.error?.includes("transition boom"));
 	});
@@ -694,7 +702,7 @@ describe("JobRunner — AbortSignal", () => {
 			receivedSignal = signal;
 			return { status: "success", summary: "done" };
 		};
-		await new JobRunner(def, executor).run();
+		await batchRunner(def, executor).run();
 		assert.ok(receivedSignal);
 		assert.equal(receivedSignal!.aborted, false);
 	});
@@ -715,7 +723,7 @@ describe("JobRunner — AbortSignal", () => {
 			await new Promise((r) => setTimeout(r, 5000));
 			return { status: "success", summary: "too late" };
 		};
-		await new JobRunner(def, executor).run();
+		await batchRunner(def, executor).run();
 		assert.ok(receivedSignal);
 		assert.equal(receivedSignal!.aborted, true);
 	});
@@ -763,7 +771,7 @@ describe("JobRunner — stageResults reset on review loop", () => {
 			return { status: "success", summary: "ok" };
 		};
 
-		const runner = new JobRunner(def, executor);
+		const runner = batchRunner(def, executor);
 		await runner.run();
 
 		const events = runner.getEventLog().getEvents();

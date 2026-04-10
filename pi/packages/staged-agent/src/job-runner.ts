@@ -24,9 +24,11 @@ export type JobRunnerOpts = {
 	/** When true, the scheduler emits job_resumed instead of job_submitted. */
 	isRecovery?: boolean;
 	/**
-	 * When true, the runner stays alive after all stages complete, entering
-	 * an "idle" state. New work can be submitted dynamically via `submit()`.
-	 * Call `finish()` to signal that no more work will be added.
+	 * When true (the default), the runner stays alive after all stages
+	 * complete, entering an "idle" state. New work can be submitted
+	 * dynamically via `submit()`. Call `finish()` to signal that no more
+	 * work will be added. Set to `false` for batch-style jobs that should
+	 * terminate when the initial DAG is drained.
 	 */
 	interactive?: boolean;
 };
@@ -54,7 +56,7 @@ export class JobRunner {
 		this.log = new EventLog(opts?.eventLogPath);
 		this.concurrency = opts?.concurrency;
 		this.isRecovery = opts?.isRecovery ?? false;
-		this.interactive = opts?.interactive ?? false;
+		this.interactive = opts?.interactive ?? true;
 	}
 
 	async run(): Promise<JobResult> {

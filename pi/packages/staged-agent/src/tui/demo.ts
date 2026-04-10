@@ -73,10 +73,7 @@ const definition: JobDefinition = {
 
 async function main() {
 	const executor = mockStreamingExecutor();
-	const runner = new JobRunner(definition, executor, {
-		concurrency: 3,
-		interactive: true,
-	});
+	const runner = new JobRunner(definition, executor, { concurrency: 3 });
 	const tui = new TuiApp(runner, definition, { interactive: true });
 
 	tui.start();

@@ -1,0 +1,57 @@
+#!/usr/bin/env dotslash
+
+// Go 1.26.2 — https://go.dev
+// Note: go is the entry-point binary inside the SDK tarball.
+{
+  "name": "go",
+  "platforms": {
+    "linux-x86_64": {
+      "size": 66798306,
+      "hash": "blake3",
+      "digest": "9d2c722fdea7011b9cdd8e39401029f82b53762f4b8f5387b7c9d2c81c165e8c",
+      "format": "tar.gz",
+      "path": "go/bin/go",
+      "providers": [
+        {
+          "url": "https://go.dev/dl/go1.26.2.linux-amd64.tar.gz"
+        }
+      ]
+    },
+    "linux-aarch64": {
+      "size": 63701324,
+      "hash": "blake3",
+      "digest": "aef83e576abddcb1049583597a8146d892a1b556b4b55ec029b1c93c441aea43",
+      "format": "tar.gz",
+      "path": "go/bin/go",
+      "providers": [
+        {
+          "url": "https://go.dev/dl/go1.26.2.linux-arm64.tar.gz"
+        }
+      ]
+    },
+    "macos-x86_64": {
+      "size": 67755361,
+      "hash": "blake3",
+      "digest": "d409be3e978537628954354e04be5e026c98deb89a2886c532dd040cc6d30f6d",
+      "format": "tar.gz",
+      "path": "go/bin/go",
+      "providers": [
+        {
+          "url": "https://go.dev/dl/go1.26.2.darwin-amd64.tar.gz"
+        }
+      ]
+    },
+    "macos-aarch64": {
+      "size": 64664058,
+      "hash": "blake3",
+      "digest": "bc5761b4ea93ee17bf8ca4dd27c672718e3855856c8cc55b94c33f115cff28e7",
+      "format": "tar.gz",
+      "path": "go/bin/go",
+      "providers": [
+        {
+          "url": "https://go.dev/dl/go1.26.2.darwin-arm64.tar.gz"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,53 @@
+#!/usr/bin/env dotslash
+
+// rustup-init 1.28.2 — https://rustup.rs
+// Raw binary (no archive). Run with: ./bin/rustup-init -y --no-modify-path
+{
+  "name": "rustup-init",
+  "platforms": {
+    "linux-x86_64": {
+      "size": 20889000,
+      "hash": "blake3",
+      "digest": "2948e13cea55e2556503285e37acd7a3d1ba72843501039dc51adc5d14af2aaa",
+      "path": "rustup-init",
+      "providers": [
+        {
+          "url": "https://static.rust-lang.org/rustup/archive/1.28.2/x86_64-unknown-linux-gnu/rustup-init"
+        }
+      ]
+    },
+    "linux-aarch64": {
+      "size": 19321944,
+      "hash": "blake3",
+      "digest": "34f688453d3eb22af3e4d0bb456f3796767fe4431f8e2be3c567e9dbf6b45359",
+      "path": "rustup-init",
+      "providers": [
+        {
+          "url": "https://static.rust-lang.org/rustup/archive/1.28.2/aarch64-unknown-linux-gnu/rustup-init"
+        }
+      ]
+    },
+    "macos-x86_64": {
+      "size": 12887404,
+      "hash": "blake3",
+      "digest": "7154808459e0280c24e23694d9440016c833cbb0a35072705953604007a4a842",
+      "path": "rustup-init",
+      "providers": [
+        {
+          "url": "https://static.rust-lang.org/rustup/archive/1.28.2/x86_64-apple-darwin/rustup-init"
+        }
+      ]
+    },
+    "macos-aarch64": {
+      "size": 11174016,
+      "hash": "blake3",
+      "digest": "66fb1cd89a5b2b0ca4a3b6308d1d7ebc1966f98330954892ef7e501afec6dbfb",
+      "path": "rustup-init",
+      "providers": [
+        {
+          "url": "https://static.rust-lang.org/rustup/archive/1.28.2/aarch64-apple-darwin/rustup-init"
+        }
+      ]
+    }
+  }
+}

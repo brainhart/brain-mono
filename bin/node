@@ -1,0 +1,56 @@
+#!/usr/bin/env dotslash
+
+// Node.js v22.22.2 LTS (Jod) — https://nodejs.org
+{
+  "name": "node",
+  "platforms": {
+    "linux-x86_64": {
+      "size": 56794459,
+      "hash": "blake3",
+      "digest": "6f09f3b2575fd106406ce8ac804cff697dfd8c8dc6c7ee8ae2008036aa80fee7",
+      "format": "tar.gz",
+      "path": "node-v22.22.2-linux-x64/bin/node",
+      "providers": [
+        {
+          "url": "https://nodejs.org/dist/v22.22.2/node-v22.22.2-linux-x64.tar.gz"
+        }
+      ]
+    },
+    "linux-aarch64": {
+      "size": 56683425,
+      "hash": "blake3",
+      "digest": "68cb959c499a381ad4da18075681f8e850f73bff80681b38705dcf058ab49094",
+      "format": "tar.gz",
+      "path": "node-v22.22.2-linux-arm64/bin/node",
+      "providers": [
+        {
+          "url": "https://nodejs.org/dist/v22.22.2/node-v22.22.2-linux-arm64.tar.gz"
+        }
+      ]
+    },
+    "macos-x86_64": {
+      "size": 51202827,
+      "hash": "blake3",
+      "digest": "f8d14f95174d58a5f71f238d6212209707dd01d46a6fae4623f87cb5b8f34121",
+      "format": "tar.gz",
+      "path": "node-v22.22.2-darwin-x64/bin/node",
+      "providers": [
+        {
+          "url": "https://nodejs.org/dist/v22.22.2/node-v22.22.2-darwin-x64.tar.gz"
+        }
+      ]
+    },
+    "macos-aarch64": {
+      "size": 50017905,
+      "hash": "blake3",
+      "digest": "0e5ce45916aeac8106c306d31025ea5e2fabd3529655a4dacf0c48f8e4c8169f",
+      "format": "tar.gz",
+      "path": "node-v22.22.2-darwin-arm64/bin/node",
+      "providers": [
+        {
+          "url": "https://nodejs.org/dist/v22.22.2/node-v22.22.2-darwin-arm64.tar.gz"
+        }
+      ]
+    }
+  }
+}

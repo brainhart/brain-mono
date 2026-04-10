@@ -1,0 +1,21 @@
+{
+  "name": "hello-ts",
+  "version": "0.1.0",
+  "description": "TypeScript workspace in the brain-mono monorepo",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/main.js",
+    "dev": "tsc --watch",
+    "lint": "eslint src/",
+    "test": "node --test dist/main.test.js"
+  },
+  "devDependencies": {
+    "typescript": "^5.8",
+    "@types/node": "^22",
+    "eslint": "^9",
+    "@eslint/js": "^9",
+    "typescript-eslint": "^8"
+  }
+}

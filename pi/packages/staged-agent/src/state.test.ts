@@ -250,4 +250,43 @@ describe("projectState", () => {
 		const state = projectState(events);
 		assert.equal(state.stageResults.get("s1")?.length, 2);
 	});
+
+	it("tracks operator notes on tasks", () => {
+		const events: RuntimeEvent[] = [
+			{
+				type: "job_submitted",
+				jobId: "j1",
+				stageIds: ["s1"],
+				timestamp: 1,
+			},
+			{
+				type: "task_started",
+				jobId: "j1",
+				stageId: "s1",
+				taskId: "t1",
+				taskAttemptId: "t1:a",
+				stageAttemptId: "s1:attempt:1",
+				attemptNumber: 1,
+				timestamp: 2,
+			},
+			{
+				type: "task_operator_note",
+				jobId: "j1",
+				stageId: "s1",
+				taskId: "t1",
+				note: "Please focus on auth edge cases.",
+				action: "retry",
+				timestamp: 3,
+			},
+		];
+
+		const state = projectState(events);
+		assert.deepEqual(state.tasks.get("t1")?.operatorNotes, [
+			{
+				note: "Please focus on auth edge cases.",
+				action: "retry",
+				timestamp: 3,
+			},
+		]);
+	});
 });

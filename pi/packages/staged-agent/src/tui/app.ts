@@ -18,6 +18,8 @@ import { HelpView } from "./views/help.js";
 import { EventLogView } from "./views/event-log.js";
 import { DagView } from "./views/dag.js";
 import { TranscriptView, parseTranscript } from "./views/transcript.js";
+import { TaskActionMenuView } from "./views/task-actions.js";
+import { TextPromptView } from "./views/text-prompt.js";
 
 type ActiveView =
 	| { type: "dashboard"; view: DashboardView }
@@ -42,6 +44,8 @@ export class TuiApp {
 	private state: JobState;
 	private viewStack: ActiveView[];
 	private helpOverlay: HelpView | undefined;
+	private taskActionOverlay: TaskActionMenuView | undefined;
+	private textPromptOverlay: TextPromptView | undefined;
 	private unsubscribe: (() => void) | undefined;
 	private renderTimer: ReturnType<typeof setInterval> | undefined;
 	private readonly startTime: number;
@@ -115,6 +119,12 @@ export class TuiApp {
 		if (this.helpOverlay) {
 			this.tui.addChild(this.helpOverlay);
 			this.tui.setFocus(this.helpOverlay);
+		} else if (this.textPromptOverlay) {
+			this.tui.addChild(this.textPromptOverlay);
+			this.tui.setFocus(this.textPromptOverlay);
+		} else if (this.taskActionOverlay) {
+			this.tui.addChild(this.taskActionOverlay);
+			this.tui.setFocus(this.taskActionOverlay);
 		} else {
 			this.tui.addChild(av.view);
 			this.tui.setFocus(av.view);
@@ -198,6 +208,9 @@ export class TuiApp {
 			case "back":
 				this.popView();
 				break;
+			case "open_actions":
+				this.openTaskActions(action.taskId);
+				break;
 			case "cancel_task":
 				this.runner.cancelTask(action.taskId, action.stageId);
 				break;
@@ -238,6 +251,106 @@ export class TuiApp {
 				this.stop();
 			}
 		};
+		this.syncActiveView();
+		this.tui.requestRender();
+	}
+
+	private openTaskActions(taskId: TaskId): void {
+		const ts = this.state.tasks.get(taskId);
+		if (!ts) return;
+		const overlay = new TaskActionMenuView(taskId, {
+			canCancel: ts.status === "running" && !!ts.stageId,
+			canTranscript: !!(ts.result?.signals?.sessionFile || ts.sessionId),
+			canPauseWithNote: !!ts.stageId,
+			canRetryWithNote: !!ts.stageId && ts.status !== "completed",
+		});
+		overlay.onAction = (a) => {
+			if (a.type === "close") {
+				this.taskActionOverlay = undefined;
+				this.syncActiveView();
+				this.tui.requestRender();
+				return;
+			}
+			if (a.type === "quit") {
+				this.taskActionOverlay = undefined;
+				this.stop();
+				return;
+			}
+
+			const current = this.state.tasks.get(taskId);
+			if (!current?.stageId) {
+				this.taskActionOverlay = undefined;
+				this.syncActiveView();
+				this.tui.requestRender();
+				return;
+			}
+
+			switch (a.type) {
+				case "transcript":
+					this.taskActionOverlay = undefined;
+					this.openTranscript(taskId, current.result?.signals?.sessionFile as string | undefined, current.sessionId ?? current.result?.signals?.sessionId as string | undefined);
+					return;
+				case "cancel_task":
+					this.taskActionOverlay = undefined;
+					this.runner.cancelTask(taskId, current.stageId);
+					this.syncActiveView();
+					this.tui.requestRender();
+					return;
+				case "note":
+					this.openTaskNotePrompt(taskId, current.stageId, "note");
+					return;
+				case "retry_with_note":
+					this.openTaskNotePrompt(taskId, current.stageId, "retry");
+					return;
+				case "pause_with_note":
+					this.openTaskNotePrompt(taskId, current.stageId, "pause");
+					return;
+				default:
+					return;
+			}
+		};
+		this.taskActionOverlay = overlay;
+		this.syncActiveView();
+		this.tui.requestRender();
+	}
+
+	private openTaskNotePrompt(
+		taskId: TaskId,
+		stageId: StageId,
+		mode: "note" | "retry" | "pause",
+	): void {
+		const title = mode === "retry"
+			? "Interrupt and retry with note"
+			: mode === "pause"
+				? "Pause job after note"
+				: "Add operator note";
+		const prompt = mode === "retry"
+			? "Add guidance for the next task attempt."
+			: mode === "pause"
+				? "Capture context before pausing the job."
+				: "Record a note for this task.";
+		const overlay = new TextPromptView(title, prompt, "Type a short note");
+		overlay.onAction = (a) => {
+			if (a.type === "cancel") {
+				this.textPromptOverlay = undefined;
+				this.syncActiveView();
+				this.tui.requestRender();
+				return;
+			}
+			this.textPromptOverlay = undefined;
+			this.taskActionOverlay = undefined;
+			if (mode === "retry") {
+				this.runner.retryTaskWithNote(taskId, stageId, a.value);
+			} else {
+				this.runner.addTaskOperatorNote(taskId, stageId, a.value, mode);
+				if (mode === "pause") {
+					this.runner.pause(`Paused from task ${taskId}: ${a.value}`);
+				}
+			}
+			this.syncActiveView();
+			this.tui.requestRender();
+		};
+		this.textPromptOverlay = overlay;
 		this.syncActiveView();
 		this.tui.requestRender();
 	}

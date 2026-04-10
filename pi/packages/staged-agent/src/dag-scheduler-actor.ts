@@ -34,7 +34,20 @@ export type DAGSchedulerActorMsg =
 	| { type: "pause"; reason?: string }
 	| { type: "resume"; input?: string }
 	| { type: "cancel" }
-	| { type: "cancel_task"; taskId: string; stageId: StageId };
+	| { type: "cancel_task"; taskId: string; stageId: StageId }
+	| {
+			type: "task_operator_note";
+			taskId: string;
+			stageId: StageId;
+			note: string;
+			action: import("./types.js").TaskOperatorAction;
+	  }
+	| {
+			type: "retry_task_with_note";
+			taskId: string;
+			stageId: StageId;
+			note: string;
+	  };
 
 /**
  * Central orchestrator actor.
@@ -103,6 +116,12 @@ export class DAGSchedulerActor extends Actor<DAGSchedulerActorMsg> {
 				break;
 			case "cancel_task":
 				this.onCancelTask(msg.taskId, msg.stageId);
+				break;
+			case "task_operator_note":
+				this.onTaskOperatorNote(msg.taskId, msg.stageId, msg.note, msg.action);
+				break;
+			case "retry_task_with_note":
+				this.onRetryTaskWithNote(msg.taskId, msg.stageId, msg.note);
 				break;
 		}
 	}
@@ -390,6 +409,45 @@ export class DAGSchedulerActor extends Actor<DAGSchedulerActorMsg> {
 		if (actor) {
 			actor.send({ type: "cancel_task", taskId });
 		}
+	}
+
+	private onTaskOperatorNote(
+		taskId: string,
+		stageId: StageId,
+		note: string,
+		action: import("./types.js").TaskOperatorAction,
+	): void {
+		const actor = this.activeStageActors.get(stageId);
+		if (!actor) return;
+		this.log.append({
+			type: "task_operator_note",
+			jobId: this.jobId,
+			stageId,
+			taskId,
+			note,
+			action,
+			timestamp: Date.now(),
+		});
+		actor.send({ type: "task_operator_note", taskId, note, action });
+	}
+
+	private onRetryTaskWithNote(
+		taskId: string,
+		stageId: StageId,
+		note: string,
+	): void {
+		const actor = this.activeStageActors.get(stageId);
+		if (!actor) return;
+		this.log.append({
+			type: "task_operator_note",
+			jobId: this.jobId,
+			stageId,
+			taskId,
+			note,
+			action: "retry",
+			timestamp: Date.now(),
+		});
+		actor.send({ type: "retry_task_with_note", taskId, note });
 	}
 
 	private failDependents(rootStageId: StageId): void {

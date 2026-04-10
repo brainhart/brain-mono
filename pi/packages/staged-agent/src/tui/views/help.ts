@@ -35,8 +35,9 @@ const SECTIONS: Array<{ title: string; keys: Array<[string, string]> }> = [
 	{
 		title: "Task actions (task view)",
 		keys: [
-			["x", "Cancel single running task"],
+			["Alt-a / :", "Open task action menu"],
 			["t", "View session transcript"],
+			["x", "Cancel single running task (legacy shortcut)"],
 		],
 	},
 	{

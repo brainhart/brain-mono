@@ -114,6 +114,14 @@ export type TaskProgressEvent = BaseEvent & {
 	progress: TaskProgress;
 };
 
+export type TaskOperatorNoteEvent = BaseEvent & {
+	type: "task_operator_note";
+	stageId: StageId;
+	taskId: TaskId;
+	note: string;
+	action: "note" | "retry" | "pause";
+};
+
 export type SessionAttachedEvent = BaseEvent & {
 	type: "session_attached";
 	taskAttemptId: TaskAttemptId;
@@ -145,5 +153,6 @@ export type RuntimeEvent =
 	| TaskCompletedEvent
 	| TaskFailedEvent
 	| TaskProgressEvent
+	| TaskOperatorNoteEvent
 	| SessionAttachedEvent
 	| TransitionEvaluatedEvent;

@@ -7,6 +7,8 @@ import type {
 	StageId,
 	StageAttemptId,
 	TaskAttemptId,
+	TaskOperatorAction,
+	TaskOperatorNote,
 } from "./types.js";
 import type { DAGSchedulerActorMsg } from "./dag-scheduler-actor.js";
 import type { SessionPoolMsg } from "./session-pool-actor.js";
@@ -27,6 +29,19 @@ export type StageActorMsg =
 			taskAttemptId: TaskAttemptId;
 			error: string;
 	  }
+	| {
+			type: "task_operator_note";
+			taskId: string;
+			note: string;
+			action: TaskOperatorAction;
+			timestamp: number;
+	  }
+	| {
+			type: "retry_task_with_note";
+			taskId: string;
+			note: string;
+			timestamp: number;
+	  }
 	| { type: "cancel" }
 	| { type: "cancel_task"; taskId: string };
 
@@ -36,6 +51,8 @@ type TaskSlot = {
 	result?: TaskResult;
 	done: boolean;
 	activeActor?: TaskActor;
+	operatorNotes: TaskOperatorNote[];
+	retryGuidance: string[];
 };
 
 export type StageActorOpts = {
@@ -79,7 +96,13 @@ export class StageActor extends Actor<StageActorMsg> {
 		this.taskTimeoutMs = opts?.taskTimeoutMs;
 		this.acquireTimeoutMs = opts?.acquireTimeoutMs;
 		for (const t of tasks) {
-			this.slots.set(t.id, { task: t, attemptCount: 0, done: false });
+			this.slots.set(t.id, {
+				task: t,
+				attemptCount: 0,
+				done: false,
+				operatorNotes: [],
+				retryGuidance: [],
+			});
 		}
 	}
 
@@ -97,6 +120,14 @@ export class StageActor extends Actor<StageActorMsg> {
 
 			case "task_failed":
 				this.onTaskFailed(msg.taskId, msg.error);
+				break;
+
+			case "task_operator_note":
+				this.onTaskOperatorNote(msg.taskId, msg.note, msg.action, msg.timestamp);
+				break;
+
+			case "retry_task_with_note":
+				this.onRetryTaskWithNote(msg.taskId, msg.note, msg.timestamp);
 				break;
 
 			case "cancel":
@@ -123,9 +154,10 @@ export class StageActor extends Actor<StageActorMsg> {
 		slot.attemptCount++;
 		const taskAttemptId: TaskAttemptId =
 			`${slot.task.id}:${this.stageAttemptId}:${slot.attemptCount}`;
+		const taskForAttempt = this.buildTaskForAttempt(slot);
 
 		const actor = new TaskActor(
-			slot.task,
+			taskForAttempt,
 			{
 				jobId: this.jobId,
 				stageId: this.stageId,
@@ -144,6 +176,36 @@ export class StageActor extends Actor<StageActorMsg> {
 
 		slot.activeActor = actor;
 		actor.send({ type: "run" });
+	}
+
+	private buildTaskForAttempt(slot: TaskSlot): TaskDefinition {
+		if (slot.retryGuidance.length === 0 && slot.operatorNotes.length === 0) {
+			return slot.task;
+		}
+
+		const operatorNotes = slot.operatorNotes.map((entry) => ({
+			action: entry.action,
+			note: entry.note,
+			timestamp: entry.timestamp,
+		}));
+		const prompt = slot.retryGuidance.length === 0
+			? slot.task.prompt
+			: [
+				slot.task.prompt,
+				"",
+				"Operator guidance for this retry:",
+				...slot.retryGuidance.map((note, index) => `${index + 1}. ${note}`),
+			].join("\n");
+
+		return {
+			...slot.task,
+			prompt,
+			context: {
+				...(slot.task.context ?? {}),
+				operatorNotes,
+				retryGuidance: [...slot.retryGuidance],
+			},
+		};
 	}
 
 	private onTaskCompleted(taskId: string, result: TaskResult): void {
@@ -171,6 +233,43 @@ export class StageActor extends Actor<StageActorMsg> {
 			slot.result = { status: "failure", summary: error };
 			this.results.push(slot.result);
 			this.checkPolicy();
+		}
+	}
+
+	private onTaskOperatorNote(
+		taskId: string,
+		note: string,
+		action: TaskOperatorAction,
+		timestamp: number,
+	): void {
+		const slot = this.slots.get(taskId);
+		if (!slot) return;
+		slot.operatorNotes.push({
+			note,
+			action,
+			timestamp,
+		});
+	}
+
+	private onRetryTaskWithNote(taskId: string, note: string, timestamp: number): void {
+		const slot = this.slots.get(taskId);
+		if (!slot) return;
+
+		this.onTaskOperatorNote(taskId, note, "retry", timestamp);
+		slot.retryGuidance.push(note);
+
+		if (slot.done && slot.result?.status === "failure" && slot.attemptCount < this.maxTaskAttempts) {
+			const idx = this.results.indexOf(slot.result);
+			if (idx >= 0) this.results.splice(idx, 1);
+			slot.done = false;
+			slot.result = undefined;
+		}
+
+		if (slot.activeActor) {
+			slot.activeActor.send({ type: "cancel" });
+			slot.activeActor = undefined;
+		} else if (!slot.done && slot.attemptCount < this.maxTaskAttempts) {
+			this.spawnTask(slot);
 		}
 	}
 

@@ -11,6 +11,7 @@ import { ProgressFeed } from "./progress-feed.js";
 
 export type TaskViewAction =
 	| { type: "back" }
+	| { type: "open_actions"; taskId: string }
 	| { type: "cancel_task"; taskId: string; stageId: string }
 	| { type: "view_transcript"; taskId: string; sessionFile?: string; sessionId?: string }
 	| { type: "help" }
@@ -54,11 +55,8 @@ export class TaskView implements Component {
 			}
 		}
 
-		if (matchesKey(data, "x")) {
-			const ts = this.state?.tasks.get(this.taskId);
-			if (ts?.status === "running" && ts.stageId) {
-				this.onAction?.({ type: "cancel_task", taskId: this.taskId, stageId: ts.stageId });
-			}
+		if (matchesKey(data, ":") || data === "\x1ba") {
+			this.onAction?.({ type: "open_actions", taskId: this.taskId });
 		} else if (matchesKey(data, "t")) {
 			const ts = this.state?.tasks.get(this.taskId);
 			if (ts?.result?.signals) {
@@ -67,6 +65,11 @@ export class TaskView implements Component {
 				if (sessionFile || sessionId) {
 					this.onAction?.({ type: "view_transcript", taskId: this.taskId, sessionFile, sessionId });
 				}
+			}
+		} else if (matchesKey(data, "x")) {
+			const ts = this.state?.tasks.get(this.taskId);
+			if (ts?.status === "running" && ts.stageId) {
+				this.onAction?.({ type: "cancel_task", taskId: this.taskId, stageId: ts.stageId });
 			}
 		}
 	}
@@ -123,6 +126,26 @@ export class TaskView implements Component {
 			lines.push(...feed.render(width));
 		}
 
+		if (ts && ts.operatorNotes.length > 0) {
+			lines.push(horizontalRule(width));
+			lines.push(colored("  Operator notes:", BOLD, FG_CYAN));
+			lines.push("");
+			const notes = ts.operatorNotes.slice(-4);
+			for (const entry of notes) {
+				const label = entry.action === "retry"
+					? "retry"
+					: entry.action === "pause"
+						? "pause"
+						: "note";
+				const wrapped = wrapTextWithAnsi(entry.note, Math.max(1, width - 12));
+				lines.push(`    ${colored(`[${label}]`, FG_YELLOW)} ${wrapped[0] ?? ""}`);
+				for (const line of wrapped.slice(1)) {
+					lines.push(`            ${line}`);
+				}
+			}
+			lines.push("");
+		}
+
 		lines.push(horizontalRule(width));
 		lines.push("");
 
@@ -172,8 +195,9 @@ export class TaskView implements Component {
 
 		lines.push(horizontalRule(width));
 		const footerKeys: Array<[string, string]> = [["j/k", "scroll"], ["gg/G", "top/bot"], ["C-d/u", "page"]];
-		if (ts?.status === "running") footerKeys.push(["x", "cancel"]);
+		footerKeys.push(["Alt-a", "actions"]);
 		if (ts?.result?.signals?.sessionFile || ts?.sessionId) footerKeys.push(["t", "transcript"]);
+		if (ts?.status === "running") footerKeys.push(["x", "cancel"]);
 		footerKeys.push(["h/esc", "back"], ["?", "help"], ["q", "quit"]);
 		lines.push(renderFooter(footerKeys, { mode: "NORMAL" }));
 

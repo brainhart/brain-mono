@@ -371,6 +371,51 @@ describe("JobRunner — pause/resume", () => {
 	});
 });
 
+describe("JobRunner — task collaboration", () => {
+	it("logs operator notes and retry guidance for a task", async () => {
+		const def: JobDefinition = {
+			stages: [
+				makeStage("impl", ["task-a"], { maxTaskAttempts: 3 }),
+			],
+			dependencies: [],
+		};
+
+		const prompts: string[] = [];
+		let callCount = 0;
+		const executor: TaskExecutor = async (task) => {
+			callCount++;
+			prompts.push(task.prompt);
+			if (callCount === 1) {
+				await new Promise((r) => setTimeout(r, 80));
+				throw new Error("interrupted for guidance");
+			}
+			return { status: "success", summary: "guided success" };
+		};
+
+		const runner = new JobRunner(def, executor);
+		const runPromise = runner.run();
+
+		await new Promise((r) => setTimeout(r, 20));
+		runner.addTaskOperatorNote("task-a", "impl", "Check auth edge cases");
+		runner.retryTaskWithNote("task-a", "impl", "Use the latest auth edge-case findings");
+
+		const result = await runPromise;
+		assert.equal(result.status, "completed");
+		assert.equal(callCount, 2);
+		assert.ok(prompts[1]?.includes("Operator guidance for this retry:"));
+		assert.ok(prompts[1]?.includes("Use the latest auth edge-case findings"));
+
+		const state = projectState(runner.getEventLog().getEvents());
+		const task = state.tasks.get("task-a");
+		assert.ok(task);
+		assert.equal(task?.operatorNotes.length, 2);
+		assert.deepEqual(
+			task?.operatorNotes.map((note) => note.action),
+			["note", "retry"],
+		);
+	});
+});
+
 describe("JobRunner — review loop via resetStage", () => {
 	it("re-executes a stage when transition calls dag.resetStage()", async () => {
 		let reviewCount = 0;

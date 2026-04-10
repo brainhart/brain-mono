@@ -24,6 +24,14 @@ export type TaskProgress = {
 	toolArgs?: Record<string, unknown>;
 };
 
+export type TaskOperatorAction = "note" | "retry" | "pause";
+
+export type TaskOperatorNote = {
+	note: string;
+	action: TaskOperatorAction;
+	timestamp: number;
+};
+
 export type TaskDefinition = {
 	id: TaskId;
 	prompt: string;

@@ -5,7 +5,7 @@ import type {
 	StageAttemptId,
 	TaskResult,
 	JobId,
-	TaskExecutor,
+	StreamingTaskExecutor,
 	JobStatus,
 	JobSnapshot,
 	StageInfo,
@@ -31,8 +31,9 @@ export type DAGSchedulerActorMsg =
 			error: string;
 			results: TaskResult[];
 	  }
-	| { type: "resume" }
-	| { type: "cancel" };
+	| { type: "resume"; input?: string }
+	| { type: "cancel" }
+	| { type: "cancel_task"; taskId: string; stageId: StageId };
 
 /**
  * Central orchestrator actor.
@@ -60,7 +61,7 @@ export class DAGSchedulerActor extends Actor<DAGSchedulerActorMsg> {
 	constructor(
 		private readonly jobId: JobId,
 		private readonly dag: MutableDAG,
-		private readonly executor: TaskExecutor,
+		private readonly executor: StreamingTaskExecutor,
 		private readonly pool: ActorRef<SessionPoolMsg>,
 		private readonly log: EventLog,
 	) {
@@ -91,10 +92,13 @@ export class DAGSchedulerActor extends Actor<DAGSchedulerActorMsg> {
 				);
 				break;
 			case "resume":
-				this.onResume();
+				this.onResume(msg.input);
 				break;
 			case "cancel":
 				this.onCancel();
+				break;
+			case "cancel_task":
+				this.onCancelTask(msg.taskId, msg.stageId);
 				break;
 		}
 	}
@@ -313,7 +317,7 @@ export class DAGSchedulerActor extends Actor<DAGSchedulerActorMsg> {
 					});
 				}
 
-				const shouldPause = this.dag.consumePauseRequest();
+				const pauseReq = this.dag.consumePauseRequest();
 
 				this.log.append({
 					type: "transition_evaluated",
@@ -325,12 +329,13 @@ export class DAGSchedulerActor extends Actor<DAGSchedulerActorMsg> {
 					timestamp: Date.now(),
 				});
 
-				if (shouldPause) {
+				if (pauseReq.paused) {
 					this.paused = true;
 					this.jobStatus = "paused";
 					this.log.append({
 						type: "job_paused",
 						jobId: this.jobId,
+						reason: pauseReq.reason,
 						timestamp: Date.now(),
 					});
 				}
@@ -338,16 +343,24 @@ export class DAGSchedulerActor extends Actor<DAGSchedulerActorMsg> {
 		}
 	}
 
-	private onResume(): void {
+	private onResume(input?: string): void {
 		if (!this.paused) return;
 		this.paused = false;
 		this.jobStatus = "running";
 		this.log.append({
 			type: "job_resumed",
 			jobId: this.jobId,
+			input,
 			timestamp: Date.now(),
 		});
 		this.scheduleReady();
+	}
+
+	private onCancelTask(taskId: string, stageId: StageId): void {
+		const actor = this.activeStageActors.get(stageId);
+		if (actor) {
+			actor.send({ type: "cancel_task", taskId });
+		}
 	}
 
 	private failDependents(rootStageId: StageId): void {

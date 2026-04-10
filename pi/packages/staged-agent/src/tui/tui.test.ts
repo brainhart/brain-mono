@@ -116,13 +116,14 @@ function makeState(): JobState {
 			["review", { stageId: "review", status: "waiting", attemptCount: 0 }],
 		]),
 		tasks: new Map([
-			["plan-t1", { taskId: "plan-t1", stageId: "plan", status: "completed", attemptCount: 1, result: { status: "success", summary: "Plan created" }, startedAt: now - 5000, completedAt: now - 3000, attempts: [{ taskAttemptId: "plan-t1:a1", attemptNumber: 1, startedAt: now - 5000, finishedAt: now - 3000, result: { status: "success", summary: "Plan created" } }] }],
-			["impl-t1", { taskId: "impl-t1", stageId: "impl", status: "completed", attemptCount: 1, result: { status: "success", summary: "Auth done" }, startedAt: now - 3000, completedAt: now - 1000, attempts: [{ taskAttemptId: "impl-t1:a1", attemptNumber: 1, startedAt: now - 3000, finishedAt: now - 1000, result: { status: "success", summary: "Auth done" } }] }],
-			["impl-t2", { taskId: "impl-t2", stageId: "impl", status: "running", attemptCount: 1, startedAt: now - 2000, attempts: [{ taskAttemptId: "impl-t2:a1", attemptNumber: 1, startedAt: now - 2000 }] }],
-			["impl-t3", { taskId: "impl-t3", stageId: "impl", status: "failed", attemptCount: 2, error: "DB connection error", result: { status: "failure", summary: "DB connection error" }, startedAt: now - 2500, completedAt: now - 500, attempts: [{ taskAttemptId: "impl-t3:a1", attemptNumber: 1, startedAt: now - 2500, finishedAt: now - 1500, error: "timeout" }, { taskAttemptId: "impl-t3:a2", attemptNumber: 2, startedAt: now - 1500, finishedAt: now - 500, error: "DB connection error" }] }],
+			["plan-t1", { taskId: "plan-t1", stageId: "plan", status: "completed", attemptCount: 1, result: { status: "success", summary: "Plan created" }, startedAt: now - 5000, completedAt: now - 3000, progressLines: [], attempts: [{ taskAttemptId: "plan-t1:a1", attemptNumber: 1, startedAt: now - 5000, finishedAt: now - 3000, result: { status: "success", summary: "Plan created" } }] }],
+			["impl-t1", { taskId: "impl-t1", stageId: "impl", status: "completed", attemptCount: 1, result: { status: "success", summary: "Auth done" }, startedAt: now - 3000, completedAt: now - 1000, progressLines: [], attempts: [{ taskAttemptId: "impl-t1:a1", attemptNumber: 1, startedAt: now - 3000, finishedAt: now - 1000, result: { status: "success", summary: "Auth done" } }] }],
+			["impl-t2", { taskId: "impl-t2", stageId: "impl", status: "running", attemptCount: 1, startedAt: now - 2000, progressLines: ["Analyzing codebase…", "⚡ read({path: \"src/api.ts\"})"], attempts: [{ taskAttemptId: "impl-t2:a1", attemptNumber: 1, startedAt: now - 2000 }] }],
+			["impl-t3", { taskId: "impl-t3", stageId: "impl", status: "failed", attemptCount: 2, error: "DB connection error", result: { status: "failure", summary: "DB connection error" }, startedAt: now - 2500, completedAt: now - 500, progressLines: [], attempts: [{ taskAttemptId: "impl-t3:a1", attemptNumber: 1, startedAt: now - 2500, finishedAt: now - 1500, error: "timeout" }, { taskAttemptId: "impl-t3:a2", attemptNumber: 2, startedAt: now - 1500, finishedAt: now - 500, error: "DB connection error" }] }],
 		]),
 		stageResults: new Map(),
 		transitions: [],
+		tokenUsage: { inputTokens: 5000, outputTokens: 2000, totalTokens: 7000 },
 	};
 }
 

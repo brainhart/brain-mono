@@ -100,9 +100,9 @@ export class EventLogView implements Component {
 			case "job_failed":
 				return colored("job_failed", FG_RED, BOLD) + colored(` ${truncateToWidth(event.error, maxWidth - 20)}`, FG_RED);
 			case "job_paused":
-				return colored("job_paused", FG_YELLOW, BOLD);
+				return colored("job_paused", FG_YELLOW, BOLD) + (event.reason ? colored(` "${event.reason}"`, FG_YELLOW) : "");
 			case "job_resumed":
-				return colored("job_resumed", FG_GREEN);
+				return colored("job_resumed", FG_GREEN) + (event.input ? colored(` input: "${truncateToWidth(event.input, maxWidth - 25)}"`, FG_GRAY) : "");
 			case "stage_submitted":
 				return colored("stage_submitted", FG_CYAN) + colored(` ${event.stageId}`, FG_WHITE);
 			case "stage_completed":
@@ -127,6 +127,12 @@ export class EventLogView implements Component {
 				return colored("task_failed", FG_RED) + colored(` ${event.taskId}`, FG_WHITE) + colored(` ${truncateToWidth(event.error, maxWidth - 30)}`, FG_RED);
 			case "session_attached":
 				return colored("session", FG_GRAY) + colored(` ${event.sessionId} → ${event.taskAttemptId}`, FG_GRAY, DIM);
+			case "task_progress": {
+				const p = event.progress;
+				const kind = colored(p.kind, FG_GRAY);
+				const text = p.text ? truncateToWidth(p.text, maxWidth - 30) : (p.toolName ?? "");
+				return colored("progress", FG_GRAY, DIM) + ` ${event.taskId} ${kind} ${text}`;
+			}
 			case "transition_evaluated": {
 				let detail = colored("transition", FG_YELLOW) + colored(` ${event.parentStageId} → ${event.childStageId}`, FG_WHITE);
 				if (event.addedStages.length > 0) detail += colored(` +${event.addedStages.join(",")}`, FG_GREEN);

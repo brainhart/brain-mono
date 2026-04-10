@@ -63,6 +63,7 @@ export class TuiApp {
 			tasks: new Map(),
 			stageResults: new Map(),
 			transitions: [],
+			tokenUsage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
 		};
 
 		const dashboard = new DashboardView(definition);
@@ -200,6 +201,9 @@ export class TuiApp {
 					this.viewStack.pop();
 					this.syncActiveView();
 				}
+				break;
+			case "cancel_task":
+				this.runner.cancelTask(action.taskId, action.stageId);
 				break;
 			case "help":
 				this.showHelp();

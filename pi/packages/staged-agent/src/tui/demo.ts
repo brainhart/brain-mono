@@ -2,41 +2,70 @@
 /**
  * Demo script for the staged-agent TUI.
  *
- * Runs a mock job with simulated tasks (no real pi sessions) and
- * displays the TUI so you can navigate the hierarchy, pause/resume,
- * and watch stages complete in real-time.
+ * Runs a mock job with simulated tasks that emit streaming progress
+ * (tool calls, text chunks) and report token usage. Demonstrates
+ * all five TUI primitives:
+ *   1. Streaming task output (progress events in task view)
+ *   2. Pause with reason (transition function pauses with explanation)
+ *   3. Task-level cancellation (x key in task view)
+ *   4. Resume with input (r key passes input to scheduler)
+ *   5. Token/cost aggregation (dashboard summary)
  *
  * Usage:
  *   node dist/tui/demo.js
  */
 
 import { JobRunner } from "../job-runner.js";
-import type { JobDefinition, TaskDefinition, SessionId, TaskResult } from "../types.js";
+import type { JobDefinition, TaskDefinition, SessionId, TaskResult, TaskProgressCallback } from "../types.js";
 import { TuiApp } from "./app.js";
 
 function sleep(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function mockExecutor(delayMs: number, failRate = 0) {
+const TOOL_NAMES = ["read", "grep", "edit", "bash", "write"];
+
+function mockStreamingExecutor(delayMs: number, failRate = 0) {
 	return async (
 		task: TaskDefinition,
 		_sessionId: SessionId,
 		signal: AbortSignal,
+		onProgress?: TaskProgressCallback,
 	): Promise<TaskResult> => {
-		const chunks = 10;
-		const chunkMs = delayMs / chunks;
-		for (let i = 0; i < chunks; i++) {
+		const steps = 6;
+		const stepMs = delayMs / steps;
+
+		onProgress?.({ kind: "status", text: `Starting ${task.id}…` });
+		await sleep(stepMs);
+
+		for (let i = 0; i < steps - 1; i++) {
 			if (signal.aborted) return { status: "failure", summary: "Aborted" };
-			await sleep(chunkMs);
+
+			if (i % 2 === 0) {
+				const tool = TOOL_NAMES[i % TOOL_NAMES.length];
+				onProgress?.({ kind: "tool_call", toolName: tool, toolArgs: { path: `src/${task.id}.ts` } });
+				await sleep(stepMs / 2);
+				onProgress?.({ kind: "tool_result", text: `Found 42 lines in ${task.id}.ts` });
+				await sleep(stepMs / 2);
+			} else {
+				onProgress?.({ kind: "text", text: `Analyzing ${task.id} step ${i + 1}/${steps}…` });
+				await sleep(stepMs);
+			}
 		}
+
 		if (Math.random() < failRate) {
 			return { status: "failure", summary: `Simulated failure for ${task.id}` };
 		}
+
+		const inputTokens = 500 + Math.floor(Math.random() * 1000);
+		const outputTokens = 200 + Math.floor(Math.random() * 500);
 		return {
 			status: "success",
 			summary: `Completed ${task.id}: ${task.prompt.slice(0, 60)}`,
-			signals: { model: "mock", tokens: Math.floor(Math.random() * 2000) },
+			signals: {
+				model: "mock-gpt-5",
+				usage: { inputTokens, outputTokens, totalTokens: inputTokens + outputTokens },
+			},
 		};
 	};
 }
@@ -86,7 +115,7 @@ const definition: JobDefinition = {
 };
 
 async function main() {
-	const executor = mockExecutor(3000, 0.1);
+	const executor = mockStreamingExecutor(3000, 0.1);
 	const runner = new JobRunner(definition, executor, { concurrency: 3 });
 	const tui = new TuiApp(runner, definition);
 

@@ -41,6 +41,8 @@ export type TaskState = {
 	sessionId?: string;
 	error?: string;
 	attempts: TaskAttemptRecord[];
+	/** Most recent streaming progress lines (ring buffer, last N). */
+	progressLines: string[];
 };
 
 export type TransitionRecord = {
@@ -51,6 +53,12 @@ export type TransitionRecord = {
 	timestamp: number;
 };
 
+export type TokenUsage = {
+	inputTokens: number;
+	outputTokens: number;
+	totalTokens: number;
+};
+
 export type JobState = {
 	jobId: JobId;
 	status: JobStatus;
@@ -59,6 +67,9 @@ export type JobState = {
 	stageResults: Map<StageId, TaskResult[]>;
 	transitions: TransitionRecord[];
 	error?: string;
+	pauseReason?: string;
+	lastResumeInput?: string;
+	tokenUsage: TokenUsage;
 };
 
 /**
@@ -72,12 +83,16 @@ export function projectState(events: readonly RuntimeEvent[]): JobState {
 	let jobId = "";
 	let status: JobStatus = "pending";
 	let jobError: string | undefined;
+	let pauseReason: string | undefined;
+	let lastResumeInput: string | undefined;
 	const stages = new Map<StageId, StageState>();
 	const tasks = new Map<TaskId, TaskState>();
 	const stageResults = new Map<StageId, TaskResult[]>();
 	const transitions: TransitionRecord[] = [];
+	const tokenUsage: TokenUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
 
 	const sessionMap = new Map<string, string>();
+	const PROGRESS_RING_SIZE = 50;
 
 	for (const event of events) {
 		if (!jobId) jobId = event.jobId;
@@ -105,10 +120,13 @@ export function projectState(events: readonly RuntimeEvent[]): JobState {
 
 			case "job_paused":
 				status = "paused";
+				pauseReason = event.reason;
 				break;
 
 			case "job_resumed":
 				status = "running";
+				lastResumeInput = event.input;
+				pauseReason = undefined;
 				break;
 
 			case "stage_submitted": {
@@ -202,6 +220,7 @@ export function projectState(events: readonly RuntimeEvent[]): JobState {
 					existing.completedAt = undefined;
 					existing.error = undefined;
 					existing.sessionId = sessionMap.get(event.taskAttemptId);
+					existing.progressLines = [];
 					existing.attempts.push(attemptRec);
 				} else {
 					tasks.set(event.taskId, {
@@ -212,7 +231,27 @@ export function projectState(events: readonly RuntimeEvent[]): JobState {
 						startedAt: event.timestamp,
 						sessionId: sessionMap.get(event.taskAttemptId),
 						attempts: [attemptRec],
+						progressLines: [],
 					});
+				}
+				break;
+			}
+
+			case "task_progress": {
+				const ts = tasks.get(event.taskId);
+				if (ts) {
+					let line: string;
+					const p = event.progress;
+					if (p.kind === "text" && p.text) line = p.text;
+					else if (p.kind === "tool_call") line = `⚡ ${p.toolName ?? "tool"}(${JSON.stringify(p.toolArgs ?? {}).slice(0, 80)})`;
+					else if (p.kind === "tool_result" && p.text) line = `  → ${p.text}`;
+					else if (p.kind === "status" && p.text) line = `⏳ ${p.text}`;
+					else line = `[${p.kind}]`;
+
+					ts.progressLines.push(line);
+					if (ts.progressLines.length > PROGRESS_RING_SIZE) {
+						ts.progressLines.splice(0, ts.progressLines.length - PROGRESS_RING_SIZE);
+					}
 				}
 				break;
 			}
@@ -236,6 +275,14 @@ export function projectState(events: readonly RuntimeEvent[]): JobState {
 					stageResults.set(sid, []);
 				}
 				stageResults.get(sid)!.push(event.result);
+
+				const usage = event.result.signals?.usage as Record<string, number> | undefined;
+				if (usage) {
+					tokenUsage.inputTokens += usage.inputTokens ?? usage.input_tokens ?? 0;
+					tokenUsage.outputTokens += usage.outputTokens ?? usage.output_tokens ?? 0;
+					tokenUsage.totalTokens += usage.totalTokens ?? usage.total_tokens
+						?? ((usage.inputTokens ?? usage.input_tokens ?? 0) + (usage.outputTokens ?? usage.output_tokens ?? 0));
+				}
 				break;
 			}
 
@@ -260,5 +307,5 @@ export function projectState(events: readonly RuntimeEvent[]): JobState {
 		}
 	}
 
-	return { jobId, status, stages, tasks, stageResults, transitions, error: jobError };
+	return { jobId, status, stages, tasks, stageResults, transitions, error: jobError, pauseReason, lastResumeInput, tokenUsage };
 }

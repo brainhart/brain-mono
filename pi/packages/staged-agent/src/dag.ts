@@ -14,6 +14,7 @@ export class MutableDAG implements DAGMutator {
 	private readonly edgeMap = new Map<string, StageDependency>();
 
 	private _pauseRequested = false;
+	private _pauseReason: string | undefined;
 	private readonly _resetRequested = new Set<StageId>();
 
 	addStage(stage: StageDefinition): void {
@@ -61,14 +62,17 @@ export class MutableDAG implements DAGMutator {
 		this._resetRequested.add(stageId);
 	}
 
-	pause(): void {
+	pause(reason?: string): void {
 		this._pauseRequested = true;
+		this._pauseReason = reason;
 	}
 
-	consumePauseRequest(): boolean {
+	consumePauseRequest(): { paused: boolean; reason?: string } {
 		const v = this._pauseRequested;
+		const r = this._pauseReason;
 		this._pauseRequested = false;
-		return v;
+		this._pauseReason = undefined;
+		return { paused: v, reason: r };
 	}
 
 	consumeResetRequests(): StageId[] {

@@ -13,6 +13,17 @@ export type TaskResult = {
 	metrics?: Record<string, number>;
 };
 
+/**
+ * Incremental progress update emitted by a TaskExecutor during execution.
+ * Provides the streaming equivalent of pi CLI's real-time output.
+ */
+export type TaskProgress = {
+	kind: "text" | "tool_call" | "tool_result" | "status";
+	text?: string;
+	toolName?: string;
+	toolArgs?: Record<string, unknown>;
+};
+
 export type TaskDefinition = {
 	id: TaskId;
 	prompt: string;
@@ -52,8 +63,9 @@ export interface DAGMutator {
 	/**
 	 * Signal that the job should pause pending external input.
 	 * The scheduler will stop scheduling new stages.
+	 * @param reason — human-readable explanation shown in the TUI
 	 */
-	pause(): void;
+	pause(reason?: string): void;
 }
 
 export type TransitionFn = (
@@ -107,10 +119,26 @@ export type JobResult = {
 	error?: string;
 };
 
+/**
+ * Callback invoked by a StreamingTaskExecutor to report incremental progress.
+ */
+export type TaskProgressCallback = (progress: TaskProgress) => void;
+
 export type TaskExecutor = (
 	task: TaskDefinition,
 	sessionId: SessionId,
 	signal: AbortSignal,
+) => Promise<TaskResult>;
+
+/**
+ * Extended executor that can report incremental progress.
+ * Falls back to TaskExecutor signature when onProgress is not provided.
+ */
+export type StreamingTaskExecutor = (
+	task: TaskDefinition,
+	sessionId: SessionId,
+	signal: AbortSignal,
+	onProgress?: TaskProgressCallback,
 ) => Promise<TaskResult>;
 
 /**

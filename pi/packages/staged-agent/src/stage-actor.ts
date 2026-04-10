@@ -2,7 +2,7 @@ import { Actor, type ActorRef } from "./actor.js";
 import type {
 	TaskDefinition,
 	TaskResult,
-	TaskExecutor,
+	StreamingTaskExecutor,
 	CompletionPolicy,
 	StageId,
 	StageAttemptId,
@@ -27,7 +27,8 @@ export type StageActorMsg =
 			taskAttemptId: TaskAttemptId;
 			error: string;
 	  }
-	| { type: "cancel" };
+	| { type: "cancel" }
+	| { type: "cancel_task"; taskId: string };
 
 type TaskSlot = {
 	task: TaskDefinition;
@@ -66,7 +67,7 @@ export class StageActor extends Actor<StageActorMsg> {
 		private readonly stageAttemptId: StageAttemptId,
 		private readonly jobId: string,
 		private readonly tasks: TaskDefinition[],
-		private readonly executor: TaskExecutor,
+		private readonly executor: StreamingTaskExecutor,
 		private readonly pool: ActorRef<SessionPoolMsg>,
 		private readonly parent: ActorRef<DAGSchedulerActorMsg>,
 		private readonly log: EventLog,
@@ -100,6 +101,10 @@ export class StageActor extends Actor<StageActorMsg> {
 
 			case "cancel":
 				this.cancelAll();
+				break;
+
+			case "cancel_task":
+				this.cancelSingleTask(msg.taskId);
 				break;
 		}
 	}
@@ -233,6 +238,14 @@ export class StageActor extends Actor<StageActorMsg> {
 		this.finished = true;
 		this.cancelRunning();
 		this.stop();
+	}
+
+	private cancelSingleTask(taskId: string): void {
+		const slot = this.slots.get(taskId);
+		if (slot?.activeActor) {
+			slot.activeActor.send({ type: "cancel" });
+			slot.activeActor = undefined;
+		}
 	}
 
 	private cancelRunning(): void {

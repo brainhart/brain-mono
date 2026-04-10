@@ -9,6 +9,7 @@ import {
 
 export type TaskViewAction =
 	| { type: "back" }
+	| { type: "cancel_task"; taskId: string; stageId: string }
 	| { type: "help" }
 	| { type: "quit" };
 
@@ -36,6 +37,11 @@ export class TaskView implements Component {
 			this.scrollOffset = Math.max(0, this.scrollOffset - 1);
 		} else if (matchesKey(data, "down") || matchesKey(data, "j")) {
 			this.scrollOffset++;
+		} else if (matchesKey(data, "x")) {
+			const ts = this.state?.tasks.get(this.taskId);
+			if (ts?.status === "running" && ts.stageId) {
+				this.onAction?.({ type: "cancel_task", taskId: this.taskId, stageId: ts.stageId });
+			}
 		} else if (matchesKey(data, "?")) {
 			this.onAction?.({ type: "help" });
 		} else if (matchesKey(data, "q")) {
@@ -88,6 +94,21 @@ export class TaskView implements Component {
 			lines.push("");
 			const ctxStr = JSON.stringify(this.taskDef.context, null, 2);
 			for (const line of ctxStr.split("\n")) lines.push("    " + line);
+			lines.push("");
+		}
+
+		// Streaming progress
+		if (ts && ts.progressLines.length > 0) {
+			lines.push(colored("  Live output:", BOLD, FG_CYAN));
+			lines.push("");
+			const showLines = ts.progressLines.slice(-15);
+			for (const pl of showLines) {
+				const wrapped = wrapTextWithAnsi(pl, Math.max(1, width - 4));
+				for (const wl of wrapped) lines.push("    " + wl);
+			}
+			if (ts.progressLines.length > 15) {
+				lines.push(colored(`    … ${ts.progressLines.length - 15} earlier lines`, FG_GRAY, DIM));
+			}
 			lines.push("");
 		}
 
@@ -172,6 +193,10 @@ export class TaskView implements Component {
 	private renderFooter(): string {
 		const keys: string[] = [];
 		keys.push(colored("↑↓", FG_CYAN) + " scroll");
+		const ts = this.state?.tasks.get(this.taskId);
+		if (ts?.status === "running") {
+			keys.push(colored("x", FG_RED) + " cancel task");
+		}
 		keys.push(colored("esc", FG_GRAY) + " back");
 		keys.push(colored("?", FG_GRAY) + " help");
 		keys.push(colored("q", FG_GRAY) + " quit");

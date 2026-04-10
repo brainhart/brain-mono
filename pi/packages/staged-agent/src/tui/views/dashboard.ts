@@ -162,6 +162,16 @@ export class DashboardView implements Component {
 		if (running > 0) parts.push(colored(`${running} active`, FG_CYAN));
 		if (failed > 0) parts.push(colored(`${failed} failed`, FG_RED));
 
+		const { totalTokens } = state.tokenUsage;
+		if (totalTokens > 0) {
+			const tokStr = totalTokens >= 1000 ? `${(totalTokens / 1000).toFixed(1)}k` : String(totalTokens);
+			parts.push(colored(`${tokStr} tokens`, FG_GRAY, DIM));
+		}
+
+		if (state.pauseReason) {
+			parts.push(colored(`paused: "${state.pauseReason}"`, FG_YELLOW));
+		}
+
 		return parts.join(colored(" · ", FG_GRAY, DIM));
 	}
 

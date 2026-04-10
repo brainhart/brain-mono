@@ -6,7 +6,7 @@ import type {
 	JobStatus,
 	JobSnapshot,
 	StageId,
-	TaskExecutor,
+	StreamingTaskExecutor,
 	TaskResult,
 } from "./types.js";
 import { MutableDAG } from "./dag.js";
@@ -37,7 +37,7 @@ export class JobRunner {
 
 	constructor(
 		private readonly definition: JobDefinition,
-		private readonly executor: TaskExecutor,
+		private readonly executor: StreamingTaskExecutor,
 		opts?: JobRunnerOpts,
 	) {
 		this.jobId = definition.id ?? randomUUID();
@@ -90,11 +90,19 @@ export class JobRunner {
 	}
 
 	/**
-	 * Resume a paused job. The scheduler will continue scheduling
-	 * waiting stages.
+	 * Resume a paused job, optionally with human input.
+	 * The input is logged and can be consumed by subsequent transitions.
 	 */
-	resume(): void {
-		this.scheduler?.send({ type: "resume" });
+	resume(input?: string): void {
+		this.scheduler?.send({ type: "resume", input });
+	}
+
+	/**
+	 * Cancel a single running task. The task's retry policy still applies
+	 * — cancellation counts as a failed attempt.
+	 */
+	cancelTask(taskId: string, stageId: StageId): void {
+		this.scheduler?.send({ type: "cancel_task", taskId, stageId });
 	}
 
 	getJobStatus(): JobStatus {
@@ -123,7 +131,7 @@ export class JobRunner {
 	static recover(
 		eventLogPath: string,
 		definition: JobDefinition,
-		executor: TaskExecutor,
+		executor: StreamingTaskExecutor,
 	): RecoveredJob {
 		const events = EventLog.replay(eventLogPath);
 		const state = projectState(events);

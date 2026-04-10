@@ -18,6 +18,9 @@ export type {
 	TaskStatus,
 	JobResult,
 	TaskExecutor,
+	StreamingTaskExecutor,
+	TaskProgress,
+	TaskProgressCallback,
 	DAGMutator,
 	StageInfo,
 	JobSnapshot,
@@ -33,7 +36,7 @@ export { TaskActor, type TaskActorMsg, type TaskActorOpts } from "./task-actor.j
 export { StageActor, type StageActorMsg, type StageActorOpts } from "./stage-actor.js";
 export { DAGSchedulerActor, type DAGSchedulerActorMsg } from "./dag-scheduler-actor.js";
 export { JobRunner, type JobRunnerOpts, type RecoveredJob } from "./job-runner.js";
-export { projectState, type StageState, type TaskState, type JobState, type TaskAttemptRecord, type TransitionRecord } from "./state.js";
+export { projectState, type StageState, type TaskState, type JobState, type TaskAttemptRecord, type TransitionRecord, type TokenUsage } from "./state.js";
 export { createPiExecutor, type PiExecutorOpts } from "./pi-executor.js";
 export {
 	PiSessionPool,

@@ -6,6 +6,8 @@ export type EventLogOpts = {
 	fsync?: boolean;
 };
 
+export type EventSubscriber = (event: RuntimeEvent) => void;
+
 export type ReplayResult = {
 	events: RuntimeEvent[];
 	corruptLines: number[];
@@ -24,6 +26,7 @@ export class EventLog {
 	private fd: number | undefined;
 	private closed = false;
 	private nextSeq = 1;
+	private readonly subscribers = new Set<EventSubscriber>();
 
 	constructor(filePath?: string, opts?: EventLogOpts) {
 		this.filePath = filePath;
@@ -49,6 +52,18 @@ export class EventLog {
 				fs.fdatasyncSync(this.fd);
 			}
 		}
+		for (const sub of this.subscribers) {
+			try { sub(stamped as RuntimeEvent); } catch { /* subscriber errors must not break the log */ }
+		}
+	}
+
+	/**
+	 * Register a callback invoked on every `append()`.
+	 * Returns an unsubscribe function.
+	 */
+	subscribe(fn: EventSubscriber): () => void {
+		this.subscribers.add(fn);
+		return () => { this.subscribers.delete(fn); };
 	}
 
 	getEvents(): readonly RuntimeEvent[] {

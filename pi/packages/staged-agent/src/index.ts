@@ -27,7 +27,7 @@ export type { RuntimeEvent } from "./events.js";
 
 export { Actor, Deferred, type ActorRef, type ActorStatus, type TimerHandle } from "./actor.js";
 export { MutableDAG } from "./dag.js";
-export { EventLog, type EventLogOpts, type ReplayResult } from "./event-log.js";
+export { EventLog, type EventLogOpts, type ReplayResult, type EventSubscriber } from "./event-log.js";
 export { SessionPoolActor, type SessionPoolMsg } from "./session-pool-actor.js";
 export { TaskActor, type TaskActorMsg, type TaskActorOpts } from "./task-actor.js";
 export { StageActor, type StageActorMsg, type StageActorOpts } from "./stage-actor.js";
@@ -43,3 +43,10 @@ export {
 	type PiSession,
 	type PiTaskExecutorOpts,
 } from "./pi-runtime.js";
+
+export { TuiApp, type TuiAppOpts } from "./tui/app.js";
+export { Screen, type KeyEvent, type InputHandler } from "./tui/screen.js";
+export { DashboardView, type DashboardAction } from "./tui/views/dashboard.js";
+export { StageView, type StageViewAction } from "./tui/views/stage.js";
+export { TaskView, type TaskViewAction } from "./tui/views/task.js";
+export { HelpView, type HelpAction } from "./tui/views/help.js";

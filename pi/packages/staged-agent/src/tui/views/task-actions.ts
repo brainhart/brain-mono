@@ -9,6 +9,7 @@ export type TaskActionMenuAction =
 	| { type: "close" }
 	| { type: "quit" }
 	| { type: "transcript" }
+	| { type: "fork_task" }
 	| { type: "note" }
 	| { type: "retry_with_note" }
 	| { type: "pause_with_note" }
@@ -30,6 +31,7 @@ export class TaskActionMenuView implements Component {
 		private readonly opts: {
 			canCancel: boolean;
 			canTranscript: boolean;
+			canFork: boolean;
 			canPauseWithNote: boolean;
 			canRetryWithNote: boolean;
 		},
@@ -73,11 +75,13 @@ export class TaskActionMenuView implements Component {
 			}
 		}
 
-		if (matchesKey(data, "1")) this.triggerByIndex(0);
-		else if (matchesKey(data, "2")) this.triggerByIndex(1);
-		else if (matchesKey(data, "3")) this.triggerByIndex(2);
-		else if (matchesKey(data, "4")) this.triggerByIndex(3);
-		else if (matchesKey(data, "5")) this.triggerByIndex(4);
+		const directKeys = ["1", "2", "3", "4", "5", "6", "7", "8", "9"] as const;
+		for (const [index, key] of directKeys.entries()) {
+			if (matchesKey(data, key)) {
+				this.triggerByIndex(index);
+				return;
+			}
+		}
 	}
 
 	render(width: number): string[] {
@@ -110,7 +114,7 @@ export class TaskActionMenuView implements Component {
 		lines.push(renderFooter([
 			["j/k", "nav"],
 			["enter", "run"],
-			["1-5", "direct"],
+			["1-9", "direct"],
 			["esc", "close"],
 			["q", "quit"],
 		], { mode: "ACTIONS" }));
@@ -130,6 +134,13 @@ export class TaskActionMenuView implements Component {
 				description: "Record a note in the task timeline.",
 			},
 		];
+		if (this.opts.canFork) {
+			items.push({
+				action: "fork_task",
+				label: "Fork as new task",
+				description: "Spawn follow-up work using this task as context.",
+			});
+		}
 		if (this.opts.canRetryWithNote) {
 			items.push({
 				action: "retry_with_note",

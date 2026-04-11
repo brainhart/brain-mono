@@ -12,9 +12,11 @@ import {
 import { DashboardView } from "./views/dashboard.js";
 import { StageView } from "./views/stage.js";
 import { TaskView } from "./views/task.js";
+import { TaskActionMenuView } from "./views/task-actions.js";
 import { HelpView } from "./views/help.js";
 import type { JobState } from "../state.js";
 import type { JobDefinition } from "../types.js";
+import { singleTaskProfile } from "../profiles.js";
 
 function stripAnsi(text: string): string {
 	return text.replace(/\x1b\[[0-9;]*m/g, "");
@@ -549,6 +551,21 @@ describe("TaskView", () => {
 	});
 });
 
+describe("TaskActionMenuView", () => {
+	it("shows fork action when interactive forking is enabled", () => {
+		const view = new TaskActionMenuView("impl-t1", {
+			canCancel: true,
+			canTranscript: true,
+			canFork: true,
+			canPauseWithNote: true,
+			canRetryWithNote: true,
+		});
+		const plain = stripAnsi(view.render(80).join("\n"));
+		assert.ok(plain.includes("Fork as new task"));
+		assert.ok(plain.includes("1-9"));
+	});
+});
+
 describe("HelpView", () => {
 	it("renders keybinding list", () => {
 		const view = new HelpView();
@@ -785,6 +802,45 @@ describe("TuiApp hardening", () => {
 			globalThis.setInterval = originalSetInterval;
 			globalThis.clearInterval = originalClearInterval;
 		}
+	});
+
+	it("submits forked tasks with source task context", async () => {
+		const { EventLog } = await import("../event-log.js");
+		const submitted: Array<{ prompt: string; profile: import("../profiles.js").JobProfile | undefined }> = [];
+		const runner = {
+			jobId: "j1",
+			getEventLog: () => new EventLog(),
+			peekNextStageCounter: () => 7,
+			getDefaultProfile: () => singleTaskProfile,
+			submitTask: (prompt: string, profile?: import("../profiles.js").JobProfile) => {
+				submitted.push({ prompt, profile });
+			},
+		} as unknown as import("../job-runner.js").JobRunner;
+		const app = new (await import("./app.js")).TuiApp(runner, makeDefinition(), {
+			cwd: "/tmp",
+			interactive: true,
+			profiles: [singleTaskProfile],
+		});
+		(app as any).state = makeState();
+		(app as any).tui.clear = () => undefined;
+		(app as any).tui.addChild = () => undefined;
+		(app as any).tui.setFocus = () => undefined;
+		(app as any).tui.requestRender = () => undefined;
+
+		(app as any).openForkPrompt("impl-t1");
+		const overlay = (app as any).textPromptOverlay;
+		assert.ok(overlay, "forking should open a task prompt overlay");
+		for (const ch of "Add regression coverage for the auth follow-up") {
+			overlay.handleInput(ch);
+		}
+		overlay.handleInput("\r");
+
+		assert.equal(submitted.length, 1);
+		assert.equal(submitted[0]?.profile, singleTaskProfile);
+		assert.match(submitted[0]?.prompt ?? "", /Follow-up request:\nAdd regression coverage for the auth follow-up/);
+		assert.match(submitted[0]?.prompt ?? "", /Source task id: impl-t1/);
+		assert.match(submitted[0]?.prompt ?? "", /Source task prompt:\nImplement auth module/);
+		assert.match(submitted[0]?.prompt ?? "", /Source task result summary:\nAuth done/);
 	});
 });
 

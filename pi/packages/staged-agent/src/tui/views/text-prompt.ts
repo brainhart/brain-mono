@@ -18,6 +18,8 @@ export class TextPromptView implements Component {
 		private readonly title: string,
 		private readonly prompt: string,
 		private readonly placeholder?: string,
+		private readonly fieldLabel = "Note",
+		private readonly emptyErrorMessage = "Enter a short note to continue.",
 	) {}
 
 	invalidate(): void {}
@@ -30,7 +32,7 @@ export class TextPromptView implements Component {
 		if (matchesKey(data, "enter")) {
 			const value = this.value.trim();
 			if (!value) {
-				this.error = "Enter a short note to continue.";
+				this.error = this.emptyErrorMessage;
 				return;
 			}
 			this.onAction?.({ type: "submit", value });
@@ -56,7 +58,7 @@ export class TextPromptView implements Component {
 		lines.push("");
 		lines.push(colored(`  ${this.prompt}`, FG_GRAY));
 		lines.push("");
-		lines.push(colored("  Note:", FG_CYAN, BOLD));
+		lines.push(colored(`  ${this.fieldLabel}:`, FG_CYAN, BOLD));
 		lines.push("");
 		lines.push(`    ${this.value || colored(this.placeholder ?? "(type a note)", FG_GRAY, DIM)}`);
 		if (this.error) {

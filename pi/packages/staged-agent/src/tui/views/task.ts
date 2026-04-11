@@ -8,7 +8,11 @@ import {
 } from "../helpers.js";
 import { parseNavKey, KeyState, clampScroll, renderFooter } from "../keybindings.js";
 import { ProgressFeed } from "./progress-feed.js";
-import { renderTranscriptEntries, type TranscriptEntry } from "./transcript.js";
+import {
+	renderTranscriptEntries,
+	type TranscriptEntry,
+	type TranscriptRenderOptions,
+} from "./transcript.js";
 
 export type TaskViewAction =
 	| { type: "back" }
@@ -29,6 +33,7 @@ export class TaskView implements Component {
 	private transcriptSessionLabel: string | undefined;
 	private transcriptLoading = false;
 	private transcriptError: string | undefined;
+	private transcriptRenderConfig: TranscriptRenderOptions | undefined;
 	onAction: ((action: TaskViewAction) => void) | undefined;
 
 	constructor(
@@ -42,13 +47,20 @@ export class TaskView implements Component {
 	setState(state: JobState): void { this.state = state; }
 	setTranscriptLoading(sessionLabel: string): void {
 		this.transcriptEntries = [];
+		this.transcriptCwd = undefined;
 		this.transcriptSessionLabel = sessionLabel;
 		this.transcriptLoading = true;
 		this.transcriptError = undefined;
 	}
-	setTranscriptEntries(entries: TranscriptEntry[], sessionLabel: string, cwd?: string): void {
+	setTranscriptEntries(
+		entries: TranscriptEntry[],
+		sessionLabel: string,
+		cwd?: string,
+		renderConfig?: TranscriptRenderOptions,
+	): void {
 		this.transcriptEntries = entries;
 		this.transcriptCwd = cwd;
+		this.transcriptRenderConfig = renderConfig;
 		this.transcriptSessionLabel = sessionLabel;
 		this.transcriptLoading = false;
 		this.transcriptError = undefined;
@@ -56,6 +68,7 @@ export class TaskView implements Component {
 	setTranscriptError(error: string, sessionLabel: string): void {
 		this.transcriptEntries = [];
 		this.transcriptCwd = undefined;
+		this.transcriptRenderConfig = undefined;
 		this.transcriptSessionLabel = sessionLabel;
 		this.transcriptLoading = false;
 		this.transcriptError = error;
@@ -63,6 +76,7 @@ export class TaskView implements Component {
 	clearTranscript(): void {
 		this.transcriptEntries = [];
 		this.transcriptCwd = undefined;
+		this.transcriptRenderConfig = undefined;
 		this.transcriptSessionLabel = undefined;
 		this.transcriptLoading = false;
 		this.transcriptError = undefined;
@@ -154,7 +168,7 @@ export class TaskView implements Component {
 			lines.push("");
 		}
 
-		if (ts && ts.progressEntries.length > 0) {
+		if (ts && ts.progressEntries.length > 0 && !this.shouldPreferTranscriptLog(ts.status)) {
 			const feed = new ProgressFeed();
 			feed.setEntries(ts.progressEntries);
 			lines.push(...feed.render(width));
@@ -236,7 +250,10 @@ export class TaskView implements Component {
 				lines.push(colored("    No transcript entries found", FG_GRAY));
 				lines.push("");
 			} else {
-				lines.push(...renderTranscriptEntries(this.transcriptEntries, width, { cwd: this.transcriptCwd }));
+				lines.push(...renderTranscriptEntries(this.transcriptEntries, width, {
+					cwd: this.transcriptCwd,
+					...this.transcriptRenderConfig,
+				}));
 			}
 		}
 
@@ -294,6 +311,11 @@ export class TaskView implements Component {
 			|| this.transcriptError !== undefined
 			|| this.transcriptEntries.length > 0
 			|| this.transcriptSessionLabel !== undefined;
+	}
+
+	private shouldPreferTranscriptLog(status: string): boolean {
+		if (status !== "running") return this.shouldRenderTranscriptSection();
+		return this.transcriptLoading || this.transcriptEntries.length > 0;
 	}
 
 	private formatValue(value: unknown): string {

@@ -41,6 +41,8 @@ export type TaskState = {
 	startedAt?: number;
 	completedAt?: number;
 	sessionId?: string;
+	sessionFile?: string;
+	sessionCwd?: string;
 	error?: string;
 	attempts: TaskAttemptRecord[];
 	/** Most recent streaming progress lines (ring buffer, last N). */
@@ -246,6 +248,8 @@ export function projectState(events: readonly RuntimeEvent[]): JobState {
 					existing.completedAt = undefined;
 					existing.error = undefined;
 					existing.sessionId = sessionMap.get(event.taskAttemptId);
+					existing.sessionFile = undefined;
+					existing.sessionCwd = undefined;
 					existing.progressLines = [];
 					existing.progressEntries = [];
 					existing.attempts.push(attemptRec);
@@ -257,6 +261,8 @@ export function projectState(events: readonly RuntimeEvent[]): JobState {
 						attemptCount: event.attemptNumber,
 						startedAt: event.timestamp,
 						sessionId: sessionMap.get(event.taskAttemptId),
+						sessionFile: undefined,
+						sessionCwd: undefined,
 						attempts: [attemptRec],
 						progressLines: [],
 						progressEntries: [],
@@ -271,6 +277,12 @@ export function projectState(events: readonly RuntimeEvent[]): JobState {
 				if (ts) {
 					let line: string;
 					const p = event.progress;
+					if (typeof p.signals?.sessionFile === "string") {
+						ts.sessionFile = p.signals.sessionFile;
+					}
+					if (typeof p.signals?.sessionCwd === "string") {
+						ts.sessionCwd = p.signals.sessionCwd;
+					}
 					if (p.kind === "text" && p.text) line = p.text;
 					else if (p.kind === "tool_call") line = `⚡ ${p.toolName ?? "tool"}(${JSON.stringify(p.toolArgs ?? {}).slice(0, 80)})`;
 					else if (p.kind === "tool_result" && p.text) line = `  → ${p.text}`;

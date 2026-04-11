@@ -15,6 +15,7 @@ import {
 	BranchSummaryMessageComponent,
 	CompactionSummaryMessageComponent,
 	CustomMessageComponent,
+	type ToolExecutionOptions,
 	getMarkdownTheme,
 	initTheme,
 	parseSkillBlock,
@@ -32,6 +33,13 @@ export type TranscriptEntry = AgentMessage;
 export type TranscriptData = {
 	entries: TranscriptEntry[];
 	cwd?: string;
+};
+
+export type TranscriptRenderOptions = {
+	cwd?: string;
+	showImages?: boolean;
+	hideThinkingBlock?: boolean;
+	hiddenThinkingLabel?: string;
 };
 
 type BashExecutionMessage = AgentMessage & {
@@ -98,7 +106,7 @@ export type TranscriptViewAction =
 export function renderTranscriptEntries(
 	entries: TranscriptEntry[],
 	width: number,
-	opts?: { cwd?: string },
+	opts?: TranscriptRenderOptions,
 ): string[] {
 	ensureInteractiveTheme();
 	const markdownTheme = getMarkdownTheme();
@@ -106,6 +114,11 @@ export function renderTranscriptEntries(
 	const pendingTools = new Map<string, ToolExecutionComponent>();
 	const ui = { requestRender() {} } as unknown as TUI;
 	const cwd = opts?.cwd ?? process.cwd();
+	const toolOptions: ToolExecutionOptions = {
+		showImages: opts?.showImages ?? true,
+	};
+	const hideThinkingBlock = opts?.hideThinkingBlock ?? false;
+	const hiddenThinkingLabel = opts?.hiddenThinkingLabel ?? "Thinking...";
 
 	const addMessageToChat = (message: TranscriptEntry): void => {
 		switch (message.role) {
@@ -175,7 +188,12 @@ export function renderTranscriptEntries(
 				break;
 			}
 			case "assistant": {
-				container.addChild(new AssistantMessageComponent(message as AssistantMessage, false, markdownTheme, "Thinking..."));
+				container.addChild(new AssistantMessageComponent(
+					message as AssistantMessage,
+					hideThinkingBlock,
+					markdownTheme,
+					hiddenThinkingLabel,
+				));
 				break;
 			}
 			case "toolResult":
@@ -196,7 +214,7 @@ export function renderTranscriptEntries(
 					content.name,
 					content.id,
 					content.arguments,
-					{ showImages: true },
+					toolOptions,
 					undefined,
 					ui,
 					cwd,
@@ -248,6 +266,7 @@ export function parseTranscript(
 export class TranscriptView implements Component {
 	private entries: TranscriptEntry[] = [];
 	private cwd: string | undefined;
+	private renderOptions: TranscriptRenderOptions | undefined;
 	private scrollOffset = 0;
 	private contentHeight = 0;
 	private readonly keyState = new KeyState();
@@ -266,6 +285,10 @@ export class TranscriptView implements Component {
 		this.entries = entries;
 		this.cwd = cwd;
 		this.loading = false;
+	}
+
+	setRenderOptions(options: TranscriptRenderOptions | undefined): void {
+		this.renderOptions = options;
 	}
 
 	setLoading(loading: boolean): void {
@@ -318,7 +341,10 @@ export class TranscriptView implements Component {
 			lines.push(colored("  No transcript entries found", FG_GRAY));
 			lines.push("");
 		} else {
-			lines.push(...renderTranscriptEntries(this.entries, width, { cwd: this.cwd }));
+			lines.push(...renderTranscriptEntries(this.entries, width, {
+				...this.renderOptions,
+				cwd: this.cwd,
+			}));
 		}
 
 		lines.push(horizontalRule(width));

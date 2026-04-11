@@ -495,8 +495,14 @@ export class TuiApp {
 
 	private maybeLoadInlineTranscript(view: TaskView, taskId: TaskId): void {
 		const taskState = this.state.tasks.get(taskId);
-		const sessionFile = taskState?.result?.signals?.sessionFile;
-		const sessionId = taskState?.result?.signals?.sessionId;
+		const progressSessionSignals = [...(taskState?.progressEntries ?? [])]
+			.reverse()
+			.find((entry) => entry.signals?.sessionFile || entry.signals?.sessionId)
+			?.signals;
+		const sessionFile = taskState?.result?.signals?.sessionFile
+			?? progressSessionSignals?.sessionFile;
+		const sessionId = taskState?.result?.signals?.sessionId
+			?? progressSessionSignals?.sessionId;
 		const displayId = typeof sessionId === "string"
 			? sessionId
 			: typeof sessionFile === "string"

@@ -207,6 +207,7 @@ export function createPiTaskExecutor(opts: PiTaskExecutorOpts) {
 		task: TaskDefinition,
 		sessionId: SessionId,
 		signal: AbortSignal,
+		onProgress?: import("./types.js").TaskProgressCallback,
 	): Promise<TaskResult> {
 		const poolDeferred = new Deferred<PiSession>();
 		opts.pool.send({ type: "acquire", deferred: poolDeferred });
@@ -231,6 +232,7 @@ export function createPiTaskExecutor(opts: PiTaskExecutorOpts) {
 				piSession.runtime,
 				task,
 				signal,
+				onProgress,
 			);
 			return result;
 		} finally {
@@ -246,6 +248,7 @@ async function driveSession(
 	runtime: AgentSessionRuntime,
 	task: TaskDefinition,
 	signal: AbortSignal,
+	onProgress?: import("./types.js").TaskProgressCallback,
 ): Promise<TaskResult> {
 	const session = runtime.session;
 	const done = new Deferred<TaskResult>();
@@ -263,6 +266,18 @@ async function driveSession(
 		return { status: "failure", summary: "Task aborted before execution" };
 	}
 	signal.addEventListener("abort", onAbort, { once: true });
+
+	// Surface the real Pi session file/cwd immediately so the task view can
+	// mirror interactive-mode rendering while the task is still running.
+	onProgress?.({
+		kind: "status",
+		text: "Attached Pi session",
+		signals: {
+			sessionFile: session.sessionFile,
+			sessionId: session.sessionId,
+			cwd: session.sessionManager.getCwd(),
+		},
+	});
 
 	unsubscribe = session.subscribe((event: AgentSessionEvent) => {
 		if (event.type === "agent_end") {

@@ -249,6 +249,38 @@ describe("TaskView", () => {
 		assert.ok(plain.includes("Prefer the existing API client abstraction."), "should render note content");
 	});
 
+	it("prefers inline Pi session log over custom live output when transcript is available", () => {
+		const def = makeDefinition();
+		const taskDef = def.stages[1].tasks[1];
+		const view = new TaskView("impl-t2", taskDef);
+		view.setState(makeState());
+		view.setTranscriptEntries([
+			{
+				role: "assistant",
+				content: [{ type: "text", text: "Inspecting the API layer." }],
+				api: "openai-responses",
+				provider: "openai",
+				model: "gpt-5",
+				usage: {
+					input: 1,
+					output: 1,
+					cacheRead: 0,
+					cacheWrite: 0,
+					totalTokens: 2,
+					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+				},
+				stopReason: "stop",
+				timestamp: Date.now(),
+			} satisfies AssistantMessage,
+		], "pi-session-7", "/tmp");
+
+		const output = view.render(80).join("\n");
+		const plain = stripAnsi(output);
+		assert.ok(plain.includes("Pi session log"));
+		assert.ok(!plain.includes("Live output"));
+		assert.ok(plain.includes("Inspecting the API layer."));
+	});
+
 	it("emits back on escape", () => {
 		const view = new TaskView("t1", { id: "t1", prompt: "test" });
 		view.setState(makeState());
@@ -387,7 +419,7 @@ describe("TaskView", () => {
 				stopReason: "stop",
 				timestamp: Date.now(),
 			} satisfies AssistantMessage,
-		], "pi-session-7");
+		], "pi-session-7", "/workspace/pi/packages/staged-agent");
 
 		const output = view.render(80).join("\n");
 		const plain = stripAnsi(output);
@@ -434,7 +466,7 @@ describe("TaskView", () => {
 				isError: false,
 				timestamp: Date.now(),
 			} satisfies ToolResultMessage,
-		], "pi-session-7");
+		], "pi-session-7", "/workspace/pi/packages/staged-agent");
 
 		const output = view.render(80).join("\n");
 		const plain = stripAnsi(output);

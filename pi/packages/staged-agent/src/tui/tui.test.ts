@@ -325,6 +325,55 @@ describe("TaskView", () => {
 		view.handleInput("t");
 		assert.deepEqual(actions, ["view_transcript"]);
 	});
+
+	it("wraps long signal values to terminal width", () => {
+		const def = makeDefinition();
+		const taskDef = def.stages[1].tasks[0];
+		const view = new TaskView("impl-t1", taskDef, "Job → What is going on in this directory? → impl-t1");
+		const state = makeState();
+		const task = state.tasks.get("impl-t1");
+		assert.ok(task);
+		task.result = {
+			status: "success",
+			summary: "Auth done",
+			signals: {
+				sessionId: "pi-session-7",
+				sessionFile: "/Users/brianhart/.pi/agent/sessions/very/deeply/nested/project/path/with/a/long/component/name/that/can/exceed/the/terminal/width/session-1.jsonl",
+				usage: {
+					inputTokens: 100,
+					outputTokens: 50,
+					nested: {
+						cwd: "/workspace/pi/packages/staged-agent",
+					},
+				},
+			},
+		};
+		view.setState(state);
+
+		const lines = view.render(122);
+		for (const line of lines) {
+			assert.ok(visibleWidth(line) <= 122, `line exceeds width: ${stripAnsi(line)}`);
+		}
+	});
+
+	it("renders inline session transcript entries", () => {
+		const def = makeDefinition();
+		const taskDef = def.stages[1].tasks[0];
+		const view = new TaskView("impl-t1", taskDef);
+		view.setState(makeState());
+		view.setTranscriptEntries([
+			{ role: "user", text: "Inspect this directory thoroughly." },
+			{ role: "assistant", text: "It is a TypeScript package with a staged TUI workflow." },
+		], "pi-session-7");
+
+		const output = view.render(80).join("\n");
+		const plain = stripAnsi(output);
+		assert.ok(plain.includes("Pi session log"));
+		assert.ok(plain.includes("User:"));
+		assert.ok(plain.includes("Assistant:"));
+		assert.ok(plain.includes("Inspect this directory thoroughly."));
+		assert.ok(plain.includes("TypeScript package with a staged TUI workflow."));
+	});
 });
 
 describe("HelpView", () => {
@@ -462,6 +511,43 @@ describe("TuiApp hardening", () => {
 			(await import("@mariozechner/pi-coding-agent")).SessionManager.open = originalOpen;
 			fs.rmSync(tmpDir, { recursive: true, force: true });
 		}
+	});
+
+	it("hydrates inline transcript on task drill-down", async () => {
+		const { EventLog } = await import("../event-log.js");
+		const runner = {
+			jobId: "j1",
+			getEventLog: () => new EventLog(),
+		} as unknown as import("../job-runner.js").JobRunner;
+		const app = new (await import("./app.js")).TuiApp(runner, makeDefinition(), { cwd: "/tmp" });
+
+		const entries = [
+			{ role: "assistant", text: "Loaded transcript entry" },
+		];
+		(app as any).loadTranscript = async () => entries;
+		(app as any).state = makeState();
+		const task = (app as any).state.tasks.get("impl-t1");
+		assert.ok(task);
+		task.result = {
+			status: "success",
+			summary: "Auth done",
+			signals: {
+				sessionId: "pi-session-7",
+				sessionFile: "/tmp/pi-session-7.json",
+			},
+		};
+		(app as any).started = true;
+
+		const view = new TaskView("impl-t1", makeDefinition().stages[1].tasks[0]);
+		view.setState((app as any).state);
+
+		(app as any).maybeLoadInlineTranscript(view, "impl-t1");
+		await new Promise((resolve) => setTimeout(resolve, 0));
+
+		const plain = stripAnsi(view.render(80).join("\n"));
+		assert.ok(plain.includes("Pi session log"));
+		assert.ok(plain.includes("Assistant:"));
+		assert.ok(plain.includes("Loaded transcript entry"));
 	});
 });
 

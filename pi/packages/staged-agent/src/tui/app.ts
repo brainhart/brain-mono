@@ -73,6 +73,7 @@ export class TuiApp {
 	private readonly startTime: number;
 	private started = false;
 	private transcriptLoadSeq = 0;
+	private readonly taskTranscriptLoads = new Map<string, { loadSeq: number; sessionFile: string; view: TaskView }>();
 
 	constructor(runner: JobRunner, definition: JobDefinition, opts?: TuiAppOpts) {
 		this.runner = runner;
@@ -170,7 +171,10 @@ export class TuiApp {
 					entry.view.setState(this.state);
 					break;
 				case "stage": entry.view.setState(this.state); break;
-				case "task": entry.view.setState(this.state); break;
+				case "task":
+					entry.view.setState(this.state);
+					this.maybeLoadInlineTranscript(entry.view, entry.taskId);
+					break;
 				case "event_log": entry.view.setEvents(this.runner.getEventLog().getEvents()); break;
 				case "dag": entry.view.setState(this.state); break;
 			}
@@ -230,6 +234,7 @@ export class TuiApp {
 				const breadcrumb = `Job → ${stageName} → ${action.taskId}`;
 				const view = new TaskView(action.taskId, taskDef, breadcrumb);
 				view.setState(this.state);
+				this.maybeLoadInlineTranscript(view, action.taskId);
 				view.onAction = (a) => this.handleTaskAction(a);
 				this.pushView({ type: "task", view, taskId: action.taskId });
 				break;
@@ -486,6 +491,49 @@ export class TuiApp {
 	private requestQuit(): void {
 		this.onQuit?.();
 		this.stop();
+	}
+
+	private maybeLoadInlineTranscript(view: TaskView, taskId: TaskId): void {
+		const taskState = this.state.tasks.get(taskId);
+		const sessionFile = taskState?.result?.signals?.sessionFile;
+		const sessionId = taskState?.result?.signals?.sessionId;
+		const displayId = typeof sessionId === "string"
+			? sessionId
+			: typeof sessionFile === "string"
+				? sessionFile
+				: taskState?.sessionId ?? "unknown";
+		if (typeof sessionFile !== "string" || sessionFile.length === 0) {
+			view.clearTranscript();
+			this.taskTranscriptLoads.delete(taskId);
+			return;
+		}
+
+		const existingLoad = this.taskTranscriptLoads.get(taskId);
+		if (existingLoad && existingLoad.sessionFile === sessionFile && existingLoad.view === view) {
+			return;
+		}
+
+		const loadSeq = ++this.transcriptLoadSeq;
+		this.taskTranscriptLoads.set(taskId, { loadSeq, sessionFile, view });
+		view.setTranscriptLoading(displayId);
+		this.loadTranscript(sessionFile).then(
+			(entries) => {
+				const activeLoad = this.taskTranscriptLoads.get(taskId);
+				if (!this.started || !activeLoad || activeLoad.loadSeq !== loadSeq || activeLoad.view !== view) {
+					return;
+				}
+				view.setTranscriptEntries(entries, displayId);
+				this.tui.requestRender();
+			},
+			(err) => {
+				const activeLoad = this.taskTranscriptLoads.get(taskId);
+				if (!this.started || !activeLoad || activeLoad.loadSeq !== loadSeq || activeLoad.view !== view) {
+					return;
+				}
+				view.setTranscriptError(err instanceof Error ? err.message : String(err), displayId);
+				this.tui.requestRender();
+			},
+		);
 	}
 
 	private openTranscript(taskId: string, sessionFile?: string, sessionId?: string): void {

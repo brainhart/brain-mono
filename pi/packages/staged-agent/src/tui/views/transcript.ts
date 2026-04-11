@@ -54,16 +54,15 @@ export function parseTranscript(entries: unknown[]): TranscriptEntry[] {
 					} else if (p.type === "thinking" && typeof p.thinking === "string") {
 						parts.push(`[thinking] ${p.thinking}`);
 					} else if (p.type === "toolCall" && typeof p.name === "string") {
-						const args = p.arguments ? JSON.stringify(p.arguments) : "";
-						const truncArgs = args.length > 200 ? args.slice(0, 200) + "…" : args;
-						parts.push(`⚡ ${p.name}(${truncArgs})`);
+						const args = p.arguments ? JSON.stringify(p.arguments, null, 2) : "";
+						parts.push(`⚡ ${p.name}(${args})`);
 					} else if (p.type === "toolResult") {
 						const resultContent = p.content;
 						if (Array.isArray(resultContent)) {
 							for (const rc of resultContent) {
 								if (rc && typeof rc === "object" && (rc as Record<string, unknown>).type === "text") {
 									const t = String((rc as Record<string, unknown>).text ?? "");
-									parts.push(`→ ${t.length > 300 ? t.slice(0, 300) + "…" : t}`);
+									parts.push(`→ ${t}`);
 								}
 							}
 						}
@@ -83,6 +82,40 @@ export function parseTranscript(entries: unknown[]): TranscriptEntry[] {
 	}
 
 	return result;
+}
+
+export function renderTranscriptEntry(entry: TranscriptEntry, width: number): string[] {
+	const lines: string[] = [];
+	let roleLabel: string;
+	let roleColor: string;
+
+	switch (entry.role) {
+		case "user":
+			roleLabel = "User";
+			roleColor = FG_GREEN;
+			break;
+		case "assistant":
+			roleLabel = "Assistant";
+			roleColor = FG_CYAN;
+			break;
+		case "system":
+			roleLabel = "System";
+			roleColor = FG_YELLOW;
+			break;
+		default:
+			roleLabel = entry.role;
+			roleColor = FG_GRAY;
+			break;
+	}
+
+	lines.push(colored(`  ${roleLabel}:`, BOLD, roleColor));
+	const wrapped = wrapTextWithAnsi(entry.text, Math.max(1, width - 4));
+	for (const wl of wrapped) {
+		lines.push("    " + wl);
+	}
+	lines.push("");
+
+	return lines;
 }
 
 export class TranscriptView implements Component {
@@ -171,37 +204,7 @@ export class TranscriptView implements Component {
 	}
 
 	private renderEntry(entry: TranscriptEntry, width: number): string[] {
-		const lines: string[] = [];
-		let roleLabel: string;
-		let roleColor: string;
-
-		switch (entry.role) {
-			case "user":
-				roleLabel = "User";
-				roleColor = FG_GREEN;
-				break;
-			case "assistant":
-				roleLabel = "Assistant";
-				roleColor = FG_CYAN;
-				break;
-			case "system":
-				roleLabel = "System";
-				roleColor = FG_YELLOW;
-				break;
-			default:
-				roleLabel = entry.role;
-				roleColor = FG_GRAY;
-				break;
-		}
-
-		lines.push(colored(`  ${roleLabel}:`, BOLD, roleColor));
-		const wrapped = wrapTextWithAnsi(entry.text, Math.max(1, width - 4));
-		for (const wl of wrapped) {
-			lines.push("    " + wl);
-		}
-		lines.push("");
-
-		return lines;
+		return renderTranscriptEntry(entry, width);
 	}
 
 }

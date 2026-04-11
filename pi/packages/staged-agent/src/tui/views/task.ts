@@ -8,7 +8,7 @@ import {
 } from "../helpers.js";
 import { parseNavKey, KeyState, clampScroll, renderFooter } from "../keybindings.js";
 import { ProgressFeed } from "./progress-feed.js";
-import { renderTranscriptEntry, type TranscriptEntry } from "./transcript.js";
+import { renderTranscriptEntries, type TranscriptEntry } from "./transcript.js";
 
 export type TaskViewAction =
 	| { type: "back" }
@@ -232,9 +232,7 @@ export class TaskView implements Component {
 				lines.push(colored("    No transcript entries found", FG_GRAY));
 				lines.push("");
 			} else {
-				for (const entry of this.transcriptEntries) {
-					lines.push(...renderTranscriptEntry(entry, width));
-				}
+				lines.push(...renderTranscriptEntries(this.transcriptEntries, width));
 			}
 		}
 

@@ -576,7 +576,7 @@ export class TuiApp {
 				: resolve(this.cwd, sessionFile);
 			const sm = SessionManager.open(resolvedPath);
 			const entries = sm.getEntries();
-			return parseTranscript(entries);
+			return parseTranscript(entries, { cwd: sm.getCwd() });
 		} catch (err) {
 			throw new Error(`Failed to load session: ${err instanceof Error ? err.message : String(err)}`);
 		}

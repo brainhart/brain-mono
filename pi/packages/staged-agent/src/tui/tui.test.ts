@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import type { AssistantMessage, ToolResultMessage, UserMessage } from "@mariozechner/pi-ai";
 import { visibleWidth } from "@mariozechner/pi-tui";
 import {
 	colored, statusIcon, statusLabel, formatDuration, horizontalRule, padRight,
@@ -362,17 +363,83 @@ describe("TaskView", () => {
 		const view = new TaskView("impl-t1", taskDef);
 		view.setState(makeState());
 		view.setTranscriptEntries([
-			{ role: "user", text: "Inspect this directory thoroughly." },
-			{ role: "assistant", text: "It is a TypeScript package with a staged TUI workflow." },
+			{
+				role: "user",
+				content: "Inspect this directory thoroughly.",
+				timestamp: Date.now(),
+			} satisfies UserMessage,
+			{
+				role: "assistant",
+				content: [
+					{ type: "text", text: "It is a TypeScript package with a staged TUI workflow." },
+				],
+				api: "openai-responses",
+				provider: "openai",
+				model: "gpt-5",
+				usage: {
+					input: 1,
+					output: 1,
+					cacheRead: 0,
+					cacheWrite: 0,
+					totalTokens: 2,
+					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+				},
+				stopReason: "stop",
+				timestamp: Date.now(),
+			} satisfies AssistantMessage,
 		], "pi-session-7");
 
 		const output = view.render(80).join("\n");
 		const plain = stripAnsi(output);
 		assert.ok(plain.includes("Pi session log"));
-		assert.ok(plain.includes("User:"));
-		assert.ok(plain.includes("Assistant:"));
 		assert.ok(plain.includes("Inspect this directory thoroughly."));
 		assert.ok(plain.includes("TypeScript package with a staged TUI workflow."));
+	});
+
+	it("renders tool executions using interactive transcript components", () => {
+		const def = makeDefinition();
+		const taskDef = def.stages[1].tasks[0];
+		const view = new TaskView("impl-t1", taskDef);
+		view.setState(makeState());
+		view.setTranscriptEntries([
+			{
+				role: "assistant",
+				content: [
+					{
+						type: "toolCall",
+						id: "call-1",
+						name: "read",
+						arguments: { path: "src/api.ts" },
+					},
+				],
+				api: "openai-responses",
+				provider: "openai",
+				model: "gpt-5",
+				usage: {
+					input: 1,
+					output: 1,
+					cacheRead: 0,
+					cacheWrite: 0,
+					totalTokens: 2,
+					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+				},
+				stopReason: "toolUse",
+				timestamp: Date.now(),
+			} satisfies AssistantMessage,
+			{
+				role: "toolResult",
+				toolCallId: "call-1",
+				toolName: "read",
+				content: [{ type: "text", text: "Found 42 lines in src/api.ts" }],
+				isError: false,
+				timestamp: Date.now(),
+			} satisfies ToolResultMessage,
+		], "pi-session-7");
+
+		const output = view.render(80).join("\n");
+		const plain = stripAnsi(output);
+		assert.ok(plain.includes("read"));
+		assert.ok(plain.includes("Found 42 lines in src/api.ts"));
 	});
 });
 
@@ -494,6 +561,7 @@ describe("TuiApp hardening", () => {
 		(await import("@mariozechner/pi-coding-agent")).SessionManager.open = ((p: string) => {
 			capturedPaths.push(p);
 			return {
+				getCwd: () => tmpDir,
 				getEntries: () => [],
 			};
 		}) as unknown as typeof originalOpen;
@@ -522,7 +590,23 @@ describe("TuiApp hardening", () => {
 		const app = new (await import("./app.js")).TuiApp(runner, makeDefinition(), { cwd: "/tmp" });
 
 		const entries = [
-			{ role: "assistant", text: "Loaded transcript entry" },
+			{
+				role: "assistant",
+				content: [{ type: "text", text: "Loaded transcript entry" }],
+				api: "openai-responses",
+				provider: "openai",
+				model: "gpt-5",
+				usage: {
+					input: 1,
+					output: 1,
+					cacheRead: 0,
+					cacheWrite: 0,
+					totalTokens: 2,
+					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+				},
+				stopReason: "stop",
+				timestamp: Date.now(),
+			} satisfies AssistantMessage,
 		];
 		(app as any).loadTranscript = async () => entries;
 		(app as any).state = makeState();
@@ -546,7 +630,6 @@ describe("TuiApp hardening", () => {
 
 		const plain = stripAnsi(view.render(80).join("\n"));
 		assert.ok(plain.includes("Pi session log"));
-		assert.ok(plain.includes("Assistant:"));
 		assert.ok(plain.includes("Loaded transcript entry"));
 	});
 });

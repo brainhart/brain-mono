@@ -82,10 +82,11 @@ export class StageView implements Component {
 		lines.push(horizontalRule(width));
 		lines.push("");
 
+		const rowWidth = Math.max(1, width - 3);
 		for (let i = 0; i < this.taskIds.length; i++) {
 			const tid = this.taskIds[i];
 			const ts = state.tasks.get(tid);
-			const line = this.renderTaskLine(tid, ts, width, now);
+			const line = this.renderTaskLine(tid, ts, rowWidth, now);
 			const prefix = i === this.cursor
 				? colored(" ▶ ", FG_CYAN, BOLD)
 				: "   ";

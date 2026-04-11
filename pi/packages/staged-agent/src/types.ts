@@ -22,6 +22,7 @@ export type TaskProgress = {
 	text?: string;
 	toolName?: string;
 	toolArgs?: Record<string, unknown>;
+	signals?: Record<string, unknown>;
 };
 
 export type TaskOperatorAction = "note" | "retry" | "pause";

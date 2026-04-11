@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import type { AssistantMessage, ToolResultMessage, UserMessage } from "@mariozechner/pi-ai";
 import { visibleWidth } from "@mariozechner/pi-tui";
 import {
 	colored, statusIcon, statusLabel, formatDuration, horizontalRule, padRight,
@@ -184,6 +185,16 @@ describe("DashboardView", () => {
 		view.handleInput("?");
 		assert.deepEqual(actions, ["help"]);
 	});
+
+	it("keeps selected stage rows within terminal width", () => {
+		const def = makeDefinition();
+		const view = new DashboardView(def);
+		view.setState(makeState());
+		const lines = view.render(80);
+		for (const line of lines) {
+			assert.ok(visibleWidth(line) <= 80, `line exceeds width: ${stripAnsi(line)}`);
+		}
+	});
 });
 
 describe("StageView", () => {
@@ -220,6 +231,16 @@ describe("StageView", () => {
 		const drill = actions.find((a) => a.type === "drill_task");
 		assert.ok(drill);
 	});
+
+	it("keeps selected task rows within terminal width", () => {
+		const def = makeDefinition();
+		const view = new StageView("impl", def.stages[1]);
+		view.setState(makeState());
+		const lines = view.render(80);
+		for (const line of lines) {
+			assert.ok(visibleWidth(line) <= 80, `line exceeds width: ${stripAnsi(line)}`);
+		}
+	});
 });
 
 describe("TaskView", () => {
@@ -246,6 +267,38 @@ describe("TaskView", () => {
 		assert.ok(plain.includes("Live output"), "should show streaming progress");
 		assert.ok(plain.includes("Operator notes"), "should show operator notes section");
 		assert.ok(plain.includes("Prefer the existing API client abstraction."), "should render note content");
+	});
+
+	it("prefers inline Pi session log over custom live output when transcript is available", () => {
+		const def = makeDefinition();
+		const taskDef = def.stages[1].tasks[1];
+		const view = new TaskView("impl-t2", taskDef);
+		view.setState(makeState());
+		view.setTranscriptEntries([
+			{
+				role: "assistant",
+				content: [{ type: "text", text: "Inspecting the API layer." }],
+				api: "openai-responses",
+				provider: "openai",
+				model: "gpt-5",
+				usage: {
+					input: 1,
+					output: 1,
+					cacheRead: 0,
+					cacheWrite: 0,
+					totalTokens: 2,
+					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+				},
+				stopReason: "stop",
+				timestamp: Date.now(),
+			} satisfies AssistantMessage,
+		], "pi-session-7", "/tmp");
+
+		const output = view.render(80).join("\n");
+		const plain = stripAnsi(output);
+		assert.ok(plain.includes("Pi session log"));
+		assert.ok(!plain.includes("Live output"));
+		assert.ok(plain.includes("Inspecting the API layer."));
 	});
 
 	it("emits back on escape", () => {
@@ -324,6 +377,143 @@ describe("TaskView", () => {
 		};
 		view.handleInput("t");
 		assert.deepEqual(actions, ["view_transcript"]);
+	});
+
+	it("wraps long signal values to terminal width", () => {
+		const def = makeDefinition();
+		const taskDef = def.stages[1].tasks[0];
+		const view = new TaskView("impl-t1", taskDef, "Job → What is going on in this directory? → impl-t1");
+		const state = makeState();
+		const task = state.tasks.get("impl-t1");
+		assert.ok(task);
+		task.result = {
+			status: "success",
+			summary: "Auth done",
+			signals: {
+				sessionId: "pi-session-7",
+				sessionFile: "/Users/brianhart/.pi/agent/sessions/very/deeply/nested/project/path/with/a/long/component/name/that/can/exceed/the/terminal/width/session-1.jsonl",
+				usage: {
+					inputTokens: 100,
+					outputTokens: 50,
+					nested: {
+						cwd: "/workspace/pi/packages/staged-agent",
+					},
+				},
+			},
+		};
+		view.setState(state);
+
+		const lines = view.render(122);
+		for (const line of lines) {
+			assert.ok(visibleWidth(line) <= 122, `line exceeds width: ${stripAnsi(line)}`);
+		}
+	});
+
+	it("renders inline session transcript entries", () => {
+		const def = makeDefinition();
+		const taskDef = def.stages[1].tasks[0];
+		const view = new TaskView("impl-t1", taskDef);
+		view.setState(makeState());
+		view.setTranscriptEntries([
+			{
+				role: "user",
+				content: "Inspect this directory thoroughly.",
+				timestamp: Date.now(),
+			} satisfies UserMessage,
+			{
+				role: "assistant",
+				content: [
+					{ type: "text", text: "It is a TypeScript package with a staged TUI workflow." },
+				],
+				api: "openai-responses",
+				provider: "openai",
+				model: "gpt-5",
+				usage: {
+					input: 1,
+					output: 1,
+					cacheRead: 0,
+					cacheWrite: 0,
+					totalTokens: 2,
+					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+				},
+				stopReason: "stop",
+				timestamp: Date.now(),
+			} satisfies AssistantMessage,
+		], "pi-session-7", "/workspace/pi/packages/staged-agent");
+
+		const output = view.render(80).join("\n");
+		const plain = stripAnsi(output);
+		assert.ok(plain.includes("Pi session log"));
+		assert.ok(plain.includes("Inspect this directory thoroughly."));
+		assert.ok(plain.includes("TypeScript package with a staged TUI workflow."));
+	});
+
+	it("renders tool executions using interactive transcript components", () => {
+		const def = makeDefinition();
+		const taskDef = def.stages[1].tasks[0];
+		const view = new TaskView("impl-t1", taskDef);
+		view.setState(makeState());
+		view.setTranscriptEntries([
+			{
+				role: "assistant",
+				content: [
+					{
+						type: "toolCall",
+						id: "call-1",
+						name: "read",
+						arguments: { path: "src/api.ts" },
+					},
+				],
+				api: "openai-responses",
+				provider: "openai",
+				model: "gpt-5",
+				usage: {
+					input: 1,
+					output: 1,
+					cacheRead: 0,
+					cacheWrite: 0,
+					totalTokens: 2,
+					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+				},
+				stopReason: "toolUse",
+				timestamp: Date.now(),
+			} satisfies AssistantMessage,
+			{
+				role: "toolResult",
+				toolCallId: "call-1",
+				toolName: "read",
+				content: [{ type: "text", text: "Found 42 lines in src/api.ts" }],
+				isError: false,
+				timestamp: Date.now(),
+			} satisfies ToolResultMessage,
+		], "pi-session-7", "/workspace/pi/packages/staged-agent");
+
+		const output = view.render(80).join("\n");
+		const plain = stripAnsi(output);
+		assert.ok(plain.includes("read"));
+		assert.ok(plain.includes("Found 42 lines in src/api.ts"));
+	});
+
+	it("renders orphaned tool results instead of dropping them", () => {
+		const def = makeDefinition();
+		const taskDef = def.stages[1].tasks[0];
+		const view = new TaskView("impl-t1", taskDef);
+		view.setState(makeState());
+		view.setTranscriptEntries([
+			{
+				role: "toolResult",
+				toolCallId: "missing-call",
+				toolName: "read",
+				content: [{ type: "text", text: "Recovered orphaned tool result" }],
+				isError: false,
+				timestamp: Date.now(),
+			} satisfies ToolResultMessage,
+		], "pi-session-7", "/workspace/pi/packages/staged-agent");
+
+		const output = view.render(80).join("\n");
+		const plain = stripAnsi(output);
+		assert.ok(plain.includes("read"));
+		assert.ok(plain.includes("Recovered orphaned tool result"));
 	});
 });
 
@@ -445,7 +635,8 @@ describe("TuiApp hardening", () => {
 		(await import("@mariozechner/pi-coding-agent")).SessionManager.open = ((p: string) => {
 			capturedPaths.push(p);
 			return {
-				getEntries: () => [],
+				getCwd: () => tmpDir,
+				buildSessionContext: () => ({ messages: [] }),
 			};
 		}) as unknown as typeof originalOpen;
 
@@ -462,6 +653,58 @@ describe("TuiApp hardening", () => {
 			(await import("@mariozechner/pi-coding-agent")).SessionManager.open = originalOpen;
 			fs.rmSync(tmpDir, { recursive: true, force: true });
 		}
+	});
+
+	it("hydrates inline transcript on task drill-down", async () => {
+		const { EventLog } = await import("../event-log.js");
+		const runner = {
+			jobId: "j1",
+			getEventLog: () => new EventLog(),
+		} as unknown as import("../job-runner.js").JobRunner;
+		const app = new (await import("./app.js")).TuiApp(runner, makeDefinition(), { cwd: "/tmp" });
+
+		const entries = [
+			{
+				role: "assistant",
+				content: [{ type: "text", text: "Loaded transcript entry" }],
+				api: "openai-responses",
+				provider: "openai",
+				model: "gpt-5",
+				usage: {
+					input: 1,
+					output: 1,
+					cacheRead: 0,
+					cacheWrite: 0,
+					totalTokens: 2,
+					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+				},
+				stopReason: "stop",
+				timestamp: Date.now(),
+			} satisfies AssistantMessage,
+		];
+		(app as any).loadTranscript = async () => ({ entries, cwd: "/tmp" });
+		(app as any).state = makeState();
+		const task = (app as any).state.tasks.get("impl-t1");
+		assert.ok(task);
+		task.result = {
+			status: "success",
+			summary: "Auth done",
+			signals: {
+				sessionId: "pi-session-7",
+				sessionFile: "/tmp/pi-session-7.json",
+			},
+		};
+		(app as any).started = true;
+
+		const view = new TaskView("impl-t1", makeDefinition().stages[1].tasks[0]);
+		view.setState((app as any).state);
+
+		(app as any).maybeLoadInlineTranscript(view, "impl-t1");
+		await new Promise((resolve) => setTimeout(resolve, 0));
+
+		const plain = stripAnsi(view.render(80).join("\n"));
+		assert.ok(plain.includes("Pi session log"));
+		assert.ok(plain.includes("Loaded transcript entry"));
 	});
 });
 
@@ -504,6 +747,53 @@ describe("projectState hardening", () => {
 		const ts = state.tasks.get("t")!;
 		assert.equal(ts.progressLines.length, 50);
 		assert.ok(ts.progressLines[0].includes("line 10"));
+	});
+
+	it("clears stale result and adopts live session signals on retries", async () => {
+		const { projectState } = await import("../state.js");
+		const events: import("../events.js").RuntimeEvent[] = [
+			{ type: "job_submitted", jobId: "j", stageIds: ["s"], timestamp: 1 },
+			{ type: "task_started", jobId: "j", stageId: "s", taskId: "t", taskAttemptId: "t:1", stageAttemptId: "s:1", attemptNumber: 1, timestamp: 2 },
+			{
+				type: "task_completed",
+				jobId: "j",
+				stageId: "s",
+				taskId: "t",
+				taskAttemptId: "t:1",
+				result: {
+					status: "success",
+					summary: "old result",
+					signals: { sessionFile: "/tmp/old.jsonl", sessionId: "old-session" },
+				},
+				timestamp: 3,
+			},
+			{ type: "task_started", jobId: "j", stageId: "s", taskId: "t", taskAttemptId: "t:2", stageAttemptId: "s:2", attemptNumber: 2, timestamp: 4 },
+			{
+				type: "task_progress",
+				jobId: "j",
+				stageId: "s",
+				taskId: "t",
+				taskAttemptId: "t:2",
+				progress: {
+					kind: "status",
+					text: "Attached Pi session",
+					signals: {
+						sessionFile: "/tmp/new.jsonl",
+						sessionId: "pi-session-2",
+						sessionCwd: "/workspace/pi/packages/staged-agent",
+					},
+				},
+				timestamp: 5,
+			},
+		];
+		const state = projectState(events);
+		const task = state.tasks.get("t");
+		assert.ok(task);
+		assert.equal(task.status, "running");
+		assert.equal(task.result, undefined);
+		assert.equal(task.sessionFile, "/tmp/new.jsonl");
+		assert.equal(task.sessionId, "pi-session-2");
+		assert.equal(task.sessionCwd, "/workspace/pi/packages/staged-agent");
 	});
 
 	it("tracks pause reason and resume input", async () => {

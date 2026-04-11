@@ -41,6 +41,8 @@ export type TaskState = {
 	startedAt?: number;
 	completedAt?: number;
 	sessionId?: string;
+	sessionFile?: string;
+	sessionCwd?: string;
 	error?: string;
 	attempts: TaskAttemptRecord[];
 	/** Most recent streaming progress lines (ring buffer, last N). */
@@ -242,10 +244,13 @@ export function projectState(events: readonly RuntimeEvent[]): JobState {
 					existing.status = "running";
 					existing.attemptCount = event.attemptNumber;
 					existing.stageId = event.stageId;
+					existing.result = undefined;
 					existing.startedAt = event.timestamp;
 					existing.completedAt = undefined;
 					existing.error = undefined;
 					existing.sessionId = sessionMap.get(event.taskAttemptId);
+					existing.sessionFile = undefined;
+					existing.sessionCwd = undefined;
 					existing.progressLines = [];
 					existing.progressEntries = [];
 					existing.attempts.push(attemptRec);
@@ -257,6 +262,8 @@ export function projectState(events: readonly RuntimeEvent[]): JobState {
 						attemptCount: event.attemptNumber,
 						startedAt: event.timestamp,
 						sessionId: sessionMap.get(event.taskAttemptId),
+						sessionFile: undefined,
+						sessionCwd: undefined,
 						attempts: [attemptRec],
 						progressLines: [],
 						progressEntries: [],
@@ -271,6 +278,21 @@ export function projectState(events: readonly RuntimeEvent[]): JobState {
 				if (ts) {
 					let line: string;
 					const p = event.progress;
+					if (typeof p.signals?.sessionFile === "string") {
+						ts.sessionFile = p.signals.sessionFile;
+					}
+					if (typeof p.signals?.sessionCwd === "string") {
+						ts.sessionCwd = p.signals.sessionCwd;
+					} else if (typeof p.signals?.cwd === "string") {
+						ts.sessionCwd = p.signals.cwd;
+					}
+					if (typeof p.signals?.sessionId === "string") {
+						ts.sessionId = p.signals.sessionId;
+						const lastAttempt = ts.attempts[ts.attempts.length - 1];
+						if (lastAttempt) {
+							lastAttempt.sessionId = p.signals.sessionId;
+						}
+					}
 					if (p.kind === "text" && p.text) line = p.text;
 					else if (p.kind === "tool_call") line = `⚡ ${p.toolName ?? "tool"}(${JSON.stringify(p.toolArgs ?? {}).slice(0, 80)})`;
 					else if (p.kind === "tool_result" && p.text) line = `  → ${p.text}`;
@@ -295,11 +317,25 @@ export function projectState(events: readonly RuntimeEvent[]): JobState {
 					ts.status = "completed";
 					ts.result = event.result;
 					ts.completedAt = event.timestamp;
+					if (typeof event.result.signals?.sessionFile === "string") {
+						ts.sessionFile = event.result.signals.sessionFile;
+					}
+					if (typeof event.result.signals?.sessionId === "string") {
+						ts.sessionId = event.result.signals.sessionId;
+					}
+					if (typeof event.result.signals?.sessionCwd === "string") {
+						ts.sessionCwd = event.result.signals.sessionCwd;
+					} else if (typeof event.result.signals?.cwd === "string") {
+						ts.sessionCwd = event.result.signals.cwd;
+					}
 
 					const lastAttempt = ts.attempts[ts.attempts.length - 1];
 					if (lastAttempt) {
 						lastAttempt.finishedAt = event.timestamp;
 						lastAttempt.result = event.result;
+						if (typeof event.result.signals?.sessionId === "string") {
+							lastAttempt.sessionId = event.result.signals.sessionId;
+						}
 					}
 				}
 

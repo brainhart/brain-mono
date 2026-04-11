@@ -1,92 +1,285 @@
 /**
  * Transcript viewer for a completed or running task's Pi session.
  *
- * Loads the session file via SessionManager.open() and renders the
- * conversation entries (user messages, assistant messages, tool calls,
- * tool results) in a scrollable view.
+ * Uses the same core interactive-mode message components from
+ * `@mariozechner/pi-coding-agent` so the task drill-down mirrors Pi's
+ * user/assistant/tool rendering model as closely as possible.
  */
 
-import type { Component } from "@mariozechner/pi-tui";
-import { wrapTextWithAnsi } from "@mariozechner/pi-tui";
+import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import type { AssistantMessage, ToolResultMessage, UserMessage } from "@mariozechner/pi-ai";
+import { Container, Spacer, type Component, type TUI } from "@mariozechner/pi-tui";
+import {
+	AssistantMessageComponent,
+	BashExecutionComponent,
+	BranchSummaryMessageComponent,
+	CompactionSummaryMessageComponent,
+	CustomMessageComponent,
+	type ToolExecutionOptions,
+	getMarkdownTheme,
+	initTheme,
+	parseSkillBlock,
+	SkillInvocationMessageComponent,
+	ToolExecutionComponent,
+	UserMessageComponent,
+} from "@mariozechner/pi-coding-agent";
 import {
 	colored, horizontalRule,
-	FG_CYAN, FG_GRAY, FG_GREEN, FG_RED, FG_YELLOW, FG_WHITE, BOLD, DIM,
+	FG_CYAN, FG_GRAY, FG_RED, FG_WHITE, BOLD, DIM,
 } from "../helpers.js";
 import { parseNavKey, KeyState, clampScroll, renderFooter } from "../keybindings.js";
 
-export type TranscriptEntry = {
-	role: "user" | "assistant" | "tool_call" | "tool_result" | "system" | "other";
-	text: string;
+export type TranscriptEntry = AgentMessage;
+export type TranscriptData = {
+	entries: TranscriptEntry[];
+	cwd?: string;
 };
+
+export type TranscriptRenderOptions = {
+	cwd?: string;
+	showImages?: boolean;
+	hideThinkingBlock?: boolean;
+	hiddenThinkingLabel?: string;
+};
+
+type BashExecutionMessage = AgentMessage & {
+	role: "bashExecution";
+	command: string;
+	output: string;
+	exitCode: number | undefined;
+	cancelled: boolean;
+	truncated: boolean;
+	fullOutputPath?: string;
+	excludeFromContext?: boolean;
+};
+
+type CustomDisplayMessage = AgentMessage & {
+	role: "custom";
+	customType: string;
+	content: string | Array<{ type: string; text?: string; data?: string; mimeType?: string }>;
+	display: boolean;
+	details?: unknown;
+};
+
+type BranchSummaryMessage = AgentMessage & {
+	role: "branchSummary";
+	summary: string;
+	fromId: string;
+};
+
+type CompactionSummaryMessage = AgentMessage & {
+	role: "compactionSummary";
+	summary: string;
+	tokensBefore: number;
+};
+
+let themeInitialized = false;
+
+function ensureInteractiveTheme(): void {
+	if (themeInitialized) return;
+	initTheme(undefined, false);
+	themeInitialized = true;
+}
+
+function getUserMessageText(message: UserMessage): string {
+	if (typeof message.content === "string") return message.content;
+	return message.content
+		.filter((content): content is { type: "text"; text: string } =>
+			content.type === "text" && typeof content.text === "string",
+		)
+		.map((content) => content.text)
+		.join("\n");
+}
+
+function toolFailureMessage(message: AssistantMessage): string | undefined {
+	if (message.stopReason !== "aborted" && message.stopReason !== "error") return undefined;
+	return message.stopReason === "aborted"
+		? "Operation aborted"
+		: message.errorMessage || "Error";
+}
 
 export type TranscriptViewAction =
 	| { type: "back" }
 	| { type: "help" }
 	| { type: "quit" };
 
-/**
- * Parse raw session entries into displayable transcript entries.
- * Session entries come from SessionManager.getEntries() and have
- * a `type` field and a `message` field with `role` and `content`.
- */
-export function parseTranscript(entries: unknown[]): TranscriptEntry[] {
-	const result: TranscriptEntry[] = [];
+export function renderTranscriptEntries(
+	entries: TranscriptEntry[],
+	width: number,
+	opts?: TranscriptRenderOptions,
+): string[] {
+	ensureInteractiveTheme();
+	const markdownTheme = getMarkdownTheme();
+	const container = new Container();
+	const pendingTools = new Map<string, ToolExecutionComponent>();
+	const ui = { requestRender() {} } as unknown as TUI;
+	const cwd = opts?.cwd ?? process.cwd();
+	const toolOptions: ToolExecutionOptions = {
+		showImages: opts?.showImages ?? true,
+	};
+	const hideThinkingBlock = opts?.hideThinkingBlock ?? false;
+	const hiddenThinkingLabel = opts?.hiddenThinkingLabel ?? "Thinking...";
 
-	for (const entry of entries) {
-		if (!entry || typeof entry !== "object") continue;
-		const e = entry as Record<string, unknown>;
-
-		if (e.type === "message" && e.message && typeof e.message === "object") {
-			const msg = e.message as Record<string, unknown>;
-			const role = String(msg.role ?? "other");
-			const content = msg.content;
-			let text = "";
-
-			if (typeof content === "string") {
-				text = content;
-			} else if (Array.isArray(content)) {
-				const parts: string[] = [];
-				for (const part of content) {
-					if (!part || typeof part !== "object") continue;
-					const p = part as Record<string, unknown>;
-					if (p.type === "text" && typeof p.text === "string") {
-						parts.push(p.text);
-					} else if (p.type === "thinking" && typeof p.thinking === "string") {
-						parts.push(`[thinking] ${p.thinking}`);
-					} else if (p.type === "toolCall" && typeof p.name === "string") {
-						const args = p.arguments ? JSON.stringify(p.arguments) : "";
-						const truncArgs = args.length > 200 ? args.slice(0, 200) + "…" : args;
-						parts.push(`⚡ ${p.name}(${truncArgs})`);
-					} else if (p.type === "toolResult") {
-						const resultContent = p.content;
-						if (Array.isArray(resultContent)) {
-							for (const rc of resultContent) {
-								if (rc && typeof rc === "object" && (rc as Record<string, unknown>).type === "text") {
-									const t = String((rc as Record<string, unknown>).text ?? "");
-									parts.push(`→ ${t.length > 300 ? t.slice(0, 300) + "…" : t}`);
-								}
-							}
-						}
-					}
+	const addMessageToChat = (message: TranscriptEntry): void => {
+		switch (message.role) {
+			case "bashExecution": {
+				const bashMessage = message as BashExecutionMessage;
+				const component = new BashExecutionComponent(
+					bashMessage.command,
+					ui,
+					bashMessage.excludeFromContext,
+				);
+				component.setExpanded(true);
+				if (bashMessage.output) {
+					component.appendOutput(bashMessage.output);
 				}
-				text = parts.join("\n");
+				component.setComplete(
+					bashMessage.exitCode,
+					bashMessage.cancelled,
+					undefined,
+					bashMessage.fullOutputPath,
+				);
+				container.addChild(component);
+				break;
 			}
-
-			if (text.trim()) {
-				const mappedRole = role === "user" ? "user"
-					: role === "assistant" ? "assistant"
-					: role === "system" ? "system"
-					: "other";
-				result.push({ role: mappedRole, text: text.trim() });
+			case "custom": {
+				const customMessage = message as CustomDisplayMessage;
+				if (!customMessage.display) break;
+				const component = new CustomMessageComponent(customMessage, undefined, markdownTheme);
+				component.setExpanded(true);
+				container.addChild(component);
+				break;
 			}
+			case "compactionSummary": {
+				container.addChild(new Spacer(1));
+				const component = new CompactionSummaryMessageComponent(
+					message as CompactionSummaryMessage,
+					markdownTheme,
+				);
+				component.setExpanded(true);
+				container.addChild(component);
+				break;
+			}
+			case "branchSummary": {
+				container.addChild(new Spacer(1));
+				const component = new BranchSummaryMessageComponent(
+					message as BranchSummaryMessage,
+					markdownTheme,
+				);
+				component.setExpanded(true);
+				container.addChild(component);
+				break;
+			}
+			case "user": {
+				const textContent = getUserMessageText(message as UserMessage);
+				if (!textContent.trim()) break;
+				const skillBlock = parseSkillBlock(textContent);
+				if (skillBlock) {
+					container.addChild(new Spacer(1));
+					const component = new SkillInvocationMessageComponent(skillBlock, markdownTheme);
+					component.setExpanded(true);
+					container.addChild(component);
+					if (skillBlock.userMessage) {
+						container.addChild(new UserMessageComponent(skillBlock.userMessage, markdownTheme));
+					}
+				} else {
+					container.addChild(new UserMessageComponent(textContent, markdownTheme));
+				}
+				break;
+			}
+			case "assistant": {
+				container.addChild(new AssistantMessageComponent(
+					message as AssistantMessage,
+					hideThinkingBlock,
+					markdownTheme,
+					hiddenThinkingLabel,
+				));
+				break;
+			}
+			case "toolResult":
+				// Matched to preceding tool call component below.
+				break;
+			default:
+				break;
 		}
+	};
+
+	for (const message of entries) {
+		if (message.role === "assistant") {
+			const assistantMessage = message as AssistantMessage;
+			addMessageToChat(assistantMessage);
+			for (const content of assistantMessage.content) {
+				if (content.type !== "toolCall") continue;
+				const component = new ToolExecutionComponent(
+					content.name,
+					content.id,
+					content.arguments,
+					toolOptions,
+					undefined,
+					ui,
+					cwd,
+				);
+				component.setExpanded(true);
+				container.addChild(component);
+				const failure = toolFailureMessage(assistantMessage);
+				if (failure) {
+					component.updateResult({
+						content: [{ type: "text", text: failure }],
+						isError: true,
+					});
+				} else {
+					pendingTools.set(content.id, component);
+				}
+			}
+			continue;
+		}
+		if (message.role === "toolResult") {
+			const resultMessage = message as ToolResultMessage;
+			const component = pendingTools.get(resultMessage.toolCallId);
+			if (component) {
+				component.updateResult(resultMessage);
+				pendingTools.delete(resultMessage.toolCallId);
+				continue;
+			}
+			const orphanedComponent = new ToolExecutionComponent(
+				resultMessage.toolName,
+				resultMessage.toolCallId,
+				{},
+				toolOptions,
+				undefined,
+				ui,
+				cwd,
+			);
+			orphanedComponent.setExpanded(true);
+			orphanedComponent.updateResult(resultMessage);
+			container.addChild(orphanedComponent);
+			continue;
+		}
+		addMessageToChat(message);
 	}
 
+	return container.render(width);
+}
+
+export function parseTranscript(
+	entries: unknown[],
+	_opts?: { cwd?: string },
+): TranscriptEntry[] {
+	const result: TranscriptEntry[] = [];
+	for (const entry of entries) {
+		if (!entry || typeof entry !== "object") continue;
+		const record = entry as Record<string, unknown>;
+		if (record.type === "message" && record.message && typeof record.message === "object") {
+			result.push(record.message as TranscriptEntry);
+		}
+	}
 	return result;
 }
 
 export class TranscriptView implements Component {
 	private entries: TranscriptEntry[] = [];
+	private cwd: string | undefined;
+	private renderOptions: TranscriptRenderOptions | undefined;
 	private scrollOffset = 0;
 	private contentHeight = 0;
 	private readonly keyState = new KeyState();
@@ -101,9 +294,14 @@ export class TranscriptView implements Component {
 		this.sessionId = sessionId;
 	}
 
-	setEntries(entries: TranscriptEntry[]): void {
+	setEntries(entries: TranscriptEntry[], cwd?: string): void {
 		this.entries = entries;
+		this.cwd = cwd;
 		this.loading = false;
+	}
+
+	setRenderOptions(options: TranscriptRenderOptions | undefined): void {
+		this.renderOptions = options;
 	}
 
 	setLoading(loading: boolean): void {
@@ -156,9 +354,10 @@ export class TranscriptView implements Component {
 			lines.push(colored("  No transcript entries found", FG_GRAY));
 			lines.push("");
 		} else {
-			for (const entry of this.entries) {
-				lines.push(...this.renderEntry(entry, width));
-			}
+			lines.push(...renderTranscriptEntries(this.entries, width, {
+				...this.renderOptions,
+				cwd: this.cwd,
+			}));
 		}
 
 		lines.push(horizontalRule(width));
@@ -170,38 +369,8 @@ export class TranscriptView implements Component {
 		return this.scrollOffset > 0 ? lines.slice(this.scrollOffset) : lines;
 	}
 
-	private renderEntry(entry: TranscriptEntry, width: number): string[] {
-		const lines: string[] = [];
-		let roleLabel: string;
-		let roleColor: string;
-
-		switch (entry.role) {
-			case "user":
-				roleLabel = "User";
-				roleColor = FG_GREEN;
-				break;
-			case "assistant":
-				roleLabel = "Assistant";
-				roleColor = FG_CYAN;
-				break;
-			case "system":
-				roleLabel = "System";
-				roleColor = FG_YELLOW;
-				break;
-			default:
-				roleLabel = entry.role;
-				roleColor = FG_GRAY;
-				break;
-		}
-
-		lines.push(colored(`  ${roleLabel}:`, BOLD, roleColor));
-		const wrapped = wrapTextWithAnsi(entry.text, Math.max(1, width - 4));
-		for (const wl of wrapped) {
-			lines.push("    " + wl);
-		}
-		lines.push("");
-
-		return lines;
+	private renderEntry(_entry: TranscriptEntry, _width: number): string[] {
+		return [];
 	}
 
 }

@@ -7,6 +7,7 @@
  */
 
 import { matchesKey } from "@mariozechner/pi-tui";
+import { initTheme, rawKeyHint } from "@mariozechner/pi-coding-agent";
 
 export type NavAction =
 	| { type: "up" }
@@ -27,6 +28,14 @@ export type NavAction =
  */
 export class KeyState {
 	pendingG = false;
+}
+
+let themeInitialized = false;
+
+function ensureInteractiveTheme(): void {
+	if (themeInitialized) return;
+	initTheme(undefined, false);
+	themeInitialized = true;
 }
 
 /**
@@ -76,19 +85,13 @@ export function renderFooter(
 	keys: Array<[key: string, desc: string]>,
 	opts?: { mode?: string },
 ): string {
-	const ESC = "\x1b[";
-	const RESET = `${ESC}0m`;
-	const BOLD = `${ESC}1m`;
-	const FG_CYAN = `${ESC}36m`;
-	const FG_WHITE = `${ESC}97m`;
-	const BG_DARK = `${ESC}48;5;235m`;
-
+	ensureInteractiveTheme();
 	const parts: string[] = [];
 	if (opts?.mode) {
-		parts.push(`${BG_DARK}${BOLD}${FG_WHITE} ${opts.mode} ${RESET}`);
+		parts.push(rawKeyHint(opts.mode, ""));
 	}
 	for (const [key, desc] of keys) {
-		parts.push(`${FG_CYAN}${key}${RESET} ${desc}`);
+		parts.push(rawKeyHint(key, desc));
 	}
 	return ` ${parts.join("  ")}`;
 }

@@ -690,6 +690,35 @@ describe("TranscriptView", () => {
 			"bottom-pinned transcript view should follow transcript growth without another G press",
 		);
 	});
+
+	it("does not auto-follow transcript refreshes when scrolled away from bottom", () => {
+		const view = new TranscriptView("impl-t1", "pi-session-7");
+		view.setEntries(makeReadTranscriptEntries(25), "/workspace/pi/packages/staged-agent");
+		view.render(100);
+		view.handleInput("j");
+		view.render(100);
+		const oldScrollOffset = (view as any).scrollOffset as number;
+
+		view.setEntries(makeReadTranscriptEntries(40), "/workspace/pi/packages/staged-agent");
+		view.render(100);
+
+		assert.equal(
+			(view as any).scrollOffset,
+			oldScrollOffset,
+			"scroll position should stay stable if the user is not pinned to bottom",
+		);
+	});
+
+	it("clears transcript errors after a successful reload", () => {
+		const view = new TranscriptView("impl-t1", "pi-session-7");
+		view.setError("temporary failure");
+		assert.ok(stripAnsi(view.render(100).join("\n")).includes("temporary failure"));
+
+		view.setEntries(makeReadTranscriptEntries(25), "/workspace/pi/packages/staged-agent");
+		const recovered = stripAnsi(view.render(100).join("\n"));
+		assert.ok(!recovered.includes("temporary failure"));
+		assert.ok(recovered.includes("read"));
+	});
 });
 
 describe("TaskActionMenuView", () => {
@@ -944,6 +973,58 @@ describe("TuiApp hardening", () => {
 			globalThis.setInterval = originalSetInterval;
 			globalThis.clearInterval = originalClearInterval;
 		}
+	});
+
+	it("surfaces transcript refresh failures and recovers on the next successful refresh", async () => {
+		const { EventLog } = await import("../event-log.js");
+		const runner = {
+			jobId: "j1",
+			getEventLog: () => new EventLog(),
+		} as unknown as import("../job-runner.js").JobRunner;
+		const app = new (await import("./app.js")).TuiApp(runner, makeDefinition(), { cwd: "/tmp" });
+
+		(app as any).state = makeState();
+		const task = (app as any).state.tasks.get("impl-t2");
+		assert.ok(task);
+		task.status = "running";
+		task.sessionFile = "/tmp/pi-session-7.json";
+		task.sessionId = "pi-session-7";
+
+		const view = new TranscriptView("impl-t2", "pi-session-7");
+		view.setEntries(makeReadTranscriptEntries(10), "/tmp");
+		(app as any).viewStack = [{
+			type: "transcript",
+			view,
+			taskId: "impl-t2",
+			sessionFile: "/tmp/pi-session-7.json",
+			lastLoadAt: 0,
+		}];
+		(app as any).started = true;
+		(app as any).tui.requestRender = () => undefined;
+
+		let loadCount = 0;
+		(app as any).loadTranscript = async () => {
+			loadCount++;
+			if (loadCount === 1) {
+				throw new Error("refresh failed");
+			}
+			return {
+				entries: makeReadTranscriptEntries(12),
+				cwd: "/tmp",
+			};
+		};
+
+		(app as any).maybeRefreshTranscriptView((app as any).viewStack[0]);
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		assert.ok(stripAnsi(view.render(100).join("\n")).includes("refresh failed"));
+
+		((app as any).viewStack[0] as { lastLoadAt: number }).lastLoadAt = 0;
+		(app as any).maybeRefreshTranscriptView((app as any).viewStack[0]);
+		await new Promise((resolve) => setTimeout(resolve, 0));
+
+		const recovered = stripAnsi(view.render(100).join("\n"));
+		assert.ok(!recovered.includes("refresh failed"));
+		assert.ok(recovered.includes("read output line 11"));
 	});
 
 	it("submits forked tasks with source task context", async () => {

@@ -301,6 +301,7 @@ export class TranscriptView implements Component {
 		const wasAtBottom = this.isAtBottom();
 		this.entries = entries;
 		this.cwd = cwd;
+		this.error = undefined;
 		this.loading = false;
 		if (wasAtBottom) this.pinToBottom();
 	}
@@ -311,6 +312,7 @@ export class TranscriptView implements Component {
 
 	setLoading(loading: boolean): void {
 		this.loading = loading;
+		if (loading) this.error = undefined;
 	}
 
 	setError(error: string): void {
@@ -379,10 +381,6 @@ export class TranscriptView implements Component {
 		const maxScroll = Math.max(0, lines.length - 1);
 		if (this.scrollOffset > maxScroll) this.scrollOffset = maxScroll;
 		return this.scrollOffset > 0 ? lines.slice(this.scrollOffset) : lines;
-	}
-
-	private renderEntry(_entry: TranscriptEntry, _width: number): string[] {
-		return [];
 	}
 
 	private isAtBottom(): boolean {

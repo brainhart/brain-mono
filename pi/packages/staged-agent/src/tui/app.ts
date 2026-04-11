@@ -7,6 +7,7 @@
  */
 
 import { TUI, ProcessTerminal, type Terminal } from "@mariozechner/pi-tui";
+import { isAbsolute, resolve } from "node:path";
 import type { JobRunner } from "../job-runner.js";
 import type { JobDefinition, StageId, TaskId, TaskDefinition } from "../types.js";
 import type { JobProfile } from "../profiles.js";
@@ -36,6 +37,8 @@ export type TuiAppOpts = {
 	terminal?: Terminal;
 	/** Working directory for resolving session files. */
 	cwd?: string;
+	/** Invoked when the user requests to quit the TUI. */
+	onQuit?: () => void;
 	/** When true, enables interactive prompt submission via the TUI. */
 	interactive?: boolean;
 	/**
@@ -53,6 +56,7 @@ export class TuiApp {
 	private readonly definition: JobDefinition;
 	private readonly runner: JobRunner;
 	private readonly cwd: string;
+	private readonly onQuit: (() => void) | undefined;
 	private readonly interactive: boolean;
 	private readonly profiles: JobProfile[];
 	private readonly profilesExplicit: boolean;
@@ -68,6 +72,7 @@ export class TuiApp {
 	private renderTimer: ReturnType<typeof setInterval> | undefined;
 	private readonly startTime: number;
 	private started = false;
+	private transcriptLoadSeq = 0;
 
 	constructor(runner: JobRunner, definition: JobDefinition, opts?: TuiAppOpts) {
 		this.runner = runner;
@@ -75,6 +80,7 @@ export class TuiApp {
 		this.terminal = opts?.terminal ?? new ProcessTerminal();
 		this.tui = new TUI(this.terminal);
 		this.cwd = opts?.cwd ?? process.cwd();
+		this.onQuit = opts?.onQuit;
 		this.interactive = opts?.interactive ?? false;
 		this.profilesExplicit = opts?.profiles !== undefined;
 		this.profiles = opts?.profiles ?? [];
@@ -209,7 +215,7 @@ export class TuiApp {
 				this.showHelp();
 				break;
 			case "quit":
-				this.stop();
+				this.requestQuit();
 				break;
 		}
 	}
@@ -232,7 +238,7 @@ export class TuiApp {
 				this.showHelp();
 				break;
 			case "quit":
-				this.stop();
+				this.requestQuit();
 				break;
 		}
 	}
@@ -255,7 +261,7 @@ export class TuiApp {
 				this.showHelp();
 				break;
 			case "quit":
-				this.stop();
+				this.requestQuit();
 				break;
 		}
 	}
@@ -270,6 +276,7 @@ export class TuiApp {
 		if (this.viewStack.length > 1) {
 			this.viewStack.pop();
 			this.syncActiveView();
+			this.tui.requestRender();
 		}
 	}
 
@@ -282,7 +289,7 @@ export class TuiApp {
 				this.tui.requestRender();
 			} else if (a.type === "quit") {
 				this.helpOverlay = undefined;
-				this.stop();
+				this.requestQuit();
 			}
 		};
 		this.syncActiveView();
@@ -294,7 +301,7 @@ export class TuiApp {
 		if (!ts) return;
 		const overlay = new TaskActionMenuView(taskId, {
 			canCancel: ts.status === "running" && !!ts.stageId,
-			canTranscript: !!(ts.result?.signals?.sessionFile || ts.sessionId),
+			canTranscript: typeof ts.result?.signals?.sessionFile === "string",
 			canPauseWithNote: !!ts.stageId,
 			canRetryWithNote: !!ts.stageId && ts.status !== "completed",
 		});
@@ -307,7 +314,7 @@ export class TuiApp {
 			}
 			if (a.type === "quit") {
 				this.taskActionOverlay = undefined;
-				this.stop();
+				this.requestQuit();
 				return;
 			}
 
@@ -322,7 +329,11 @@ export class TuiApp {
 			switch (a.type) {
 				case "transcript":
 					this.taskActionOverlay = undefined;
-					this.openTranscript(taskId, current.result?.signals?.sessionFile as string | undefined, current.sessionId ?? current.result?.signals?.sessionId as string | undefined);
+					this.openTranscript(
+						taskId,
+						current.result?.signals?.sessionFile as string | undefined,
+						current.result?.signals?.sessionId as string | undefined ?? current.sessionId,
+					);
 					return;
 				case "cancel_task":
 					this.taskActionOverlay = undefined;
@@ -406,7 +417,7 @@ export class TuiApp {
 			}
 			if (a.type === "quit") {
 				this.profilePickerOverlay = undefined;
-				this.stop();
+				this.requestQuit();
 				return;
 			}
 			this.profilePickerOverlay = undefined;
@@ -468,11 +479,17 @@ export class TuiApp {
 		switch (action.type) {
 			case "back": this.popView(); break;
 			case "help": this.showHelp(); break;
-			case "quit": this.stop(); break;
+			case "quit": this.requestQuit(); break;
 		}
 	}
 
+	private requestQuit(): void {
+		this.onQuit?.();
+		this.stop();
+	}
+
 	private openTranscript(taskId: string, sessionFile?: string, sessionId?: string): void {
+		const loadSeq = ++this.transcriptLoadSeq;
 		const displayId = sessionId ?? sessionFile ?? "unknown";
 		const view = new TranscriptView(taskId, displayId);
 		view.onAction = (a) => this.handleGenericViewAction(a);
@@ -484,10 +501,16 @@ export class TuiApp {
 
 			this.loadTranscript(sessionFile).then(
 				(entries) => {
+					if (!this.started || this.transcriptLoadSeq !== loadSeq || this.activeView.view !== view) {
+						return;
+					}
 					view.setEntries(entries);
 					this.tui.requestRender();
 				},
 				(err) => {
+					if (!this.started || this.transcriptLoadSeq !== loadSeq || this.activeView.view !== view) {
+						return;
+					}
 					view.setError(err instanceof Error ? err.message : String(err));
 					this.tui.requestRender();
 				},
@@ -500,7 +523,10 @@ export class TuiApp {
 	private async loadTranscript(sessionFile: string): Promise<import("./views/transcript.js").TranscriptEntry[]> {
 		try {
 			const { SessionManager } = await import("@mariozechner/pi-coding-agent");
-			const sm = SessionManager.open(sessionFile);
+			const resolvedPath = isAbsolute(sessionFile)
+				? sessionFile
+				: resolve(this.cwd, sessionFile);
+			const sm = SessionManager.open(resolvedPath);
 			const entries = sm.getEntries();
 			return parseTranscript(entries);
 		} catch (err) {

@@ -1,5 +1,8 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { visibleWidth } from "@mariozechner/pi-tui";
 import {
 	colored, statusIcon, statusLabel, formatDuration, horizontalRule, padRight,
@@ -264,6 +267,64 @@ describe("TaskView", () => {
 		view.handleInput("\x1ba");
 		assert.deepEqual(actions, ["open_actions"]);
 	});
+
+	it("shows the runtime session id when available", () => {
+		const def = makeDefinition();
+		const taskDef = def.stages[1].tasks[0];
+		const view = new TaskView("impl-t1", taskDef);
+		const state = makeState();
+		const task = state.tasks.get("impl-t1");
+		assert.ok(task);
+		task.sessionId = "session-1";
+		task.result = {
+			status: "success",
+			summary: "Auth done",
+			signals: {
+				sessionId: "pi-session-7",
+				sessionFile: "/tmp/pi-session-7.json",
+			},
+		};
+		view.setState(state);
+
+		const output = view.render(80).join("\n");
+		const plain = stripAnsi(output);
+		assert.ok(plain.includes("session: pi-session-7"));
+		assert.ok(!plain.includes("session: session-1"));
+	});
+
+	it("only opens transcript when a session file exists", () => {
+		const def = makeDefinition();
+		const taskDef = def.stages[1].tasks[0];
+		const view = new TaskView("impl-t1", taskDef);
+		const state = makeState();
+		const task = state.tasks.get("impl-t1");
+		assert.ok(task);
+
+		task.result = {
+			status: "success",
+			summary: "Auth done",
+			signals: {
+				sessionId: "pi-session-7",
+			},
+		};
+		view.setState(state);
+
+		const actions: string[] = [];
+		view.onAction = (a) => actions.push(a.type);
+		view.handleInput("t");
+		assert.deepEqual(actions, []);
+
+		task.result = {
+			status: "success",
+			summary: "Auth done",
+			signals: {
+				sessionId: "pi-session-7",
+				sessionFile: "/tmp/pi-session-7.json",
+			},
+		};
+		view.handleInput("t");
+		assert.deepEqual(actions, ["view_transcript"]);
+	});
 });
 
 describe("HelpView", () => {
@@ -299,6 +360,13 @@ describe("HelpView", () => {
 		view.onAction = (a) => actions.push(a.type);
 		view.handleInput("q");
 		assert.deepEqual(actions, ["quit"]);
+	});
+
+	it("describes quit as exiting after work drains", () => {
+		const view = new HelpView();
+		const output = view.render(80).join("\n");
+		const plain = stripAnsi(output);
+		assert.ok(plain.includes("Quit / finish current session"));
 	});
 });
 
@@ -363,6 +431,37 @@ describe("EventLogView edge cases", () => {
 		const output = view.render(80).join("\n");
 		const plain = stripAnsi(output);
 		assert.ok(plain.includes("No events yet"));
+	});
+});
+
+describe("TuiApp hardening", () => {
+	it("resolves transcript paths relative to cwd", async () => {
+		const { EventLog } = await import("../event-log.js");
+		const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "staged-agent-tui-"));
+		const sessionPath = path.join(tmpDir, "session.jsonl");
+
+		const capturedPaths: string[] = [];
+		const originalOpen = (await import("@mariozechner/pi-coding-agent")).SessionManager.open;
+		(await import("@mariozechner/pi-coding-agent")).SessionManager.open = ((p: string) => {
+			capturedPaths.push(p);
+			return {
+				getEntries: () => [],
+			};
+		}) as unknown as typeof originalOpen;
+
+		try {
+			const runner = {
+				jobId: "j1",
+				getEventLog: () => new EventLog(),
+			} as unknown as import("../job-runner.js").JobRunner;
+			const app = new (await import("./app.js")).TuiApp(runner, makeDefinition(), { cwd: tmpDir });
+
+			await (app as any).loadTranscript("session.jsonl");
+			assert.deepEqual(capturedPaths, [sessionPath]);
+		} finally {
+			(await import("@mariozechner/pi-coding-agent")).SessionManager.open = originalOpen;
+			fs.rmSync(tmpDir, { recursive: true, force: true });
+		}
 	});
 });
 

@@ -200,6 +200,10 @@ export class TaskActor extends Actor<TaskActorMsg> {
 		result: import("./types.js").TaskResult,
 	): void {
 		if (this.phase !== "executing") return;
+		if (this.log.isClosed) {
+			this.releaseAndStop();
+			return;
+		}
 		if (this.executeTimer) {
 			this.cancelDelayed(this.executeTimer);
 			this.executeTimer = undefined;
@@ -227,6 +231,10 @@ export class TaskActor extends Actor<TaskActorMsg> {
 
 	private onExecuteFailed(error: string): void {
 		if (this.phase !== "executing") return;
+		if (this.log.isClosed) {
+			this.releaseAndStop();
+			return;
+		}
 		if (this.executeTimer) {
 			this.cancelDelayed(this.executeTimer);
 			this.executeTimer = undefined;
@@ -285,6 +293,11 @@ export class TaskActor extends Actor<TaskActorMsg> {
 
 	private fail(error: string): void {
 		this.abortController?.abort();
+		if (this.phase === "done") return;
+		if (this.log.isClosed) {
+			this.releaseAndStop();
+			return;
+		}
 
 		if (this.phase !== "idle") {
 			this.log.append({

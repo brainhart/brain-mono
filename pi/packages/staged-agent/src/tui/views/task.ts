@@ -34,6 +34,7 @@ export class TaskView implements Component {
 	private transcriptLoading = false;
 	private transcriptError: string | undefined;
 	private transcriptRenderConfig: TranscriptRenderOptions | undefined;
+	private expandToolOutput = false;
 	onAction: ((action: TaskViewAction) => void) | undefined;
 
 	constructor(
@@ -58,12 +59,14 @@ export class TaskView implements Component {
 		cwd?: string,
 		renderConfig?: TranscriptRenderOptions,
 	): void {
+		const wasAtBottom = this.isAtBottom();
 		this.transcriptEntries = entries;
 		this.transcriptCwd = cwd;
 		this.transcriptRenderConfig = renderConfig;
 		this.transcriptSessionLabel = sessionLabel;
 		this.transcriptLoading = false;
 		this.transcriptError = undefined;
+		if (wasAtBottom) this.pinToBottom();
 	}
 	setTranscriptError(error: string, sessionLabel: string): void {
 		this.transcriptEntries = [];
@@ -84,6 +87,12 @@ export class TaskView implements Component {
 	invalidate(): void {}
 
 	handleInput(data: string): void {
+		if (matchesKey(data, "ctrl+o")) {
+			const wasAtBottom = this.isAtBottom();
+			this.expandToolOutput = !this.expandToolOutput;
+			if (wasAtBottom) this.pinToBottom();
+			return;
+		}
 		const nav = parseNavKey(data, this.keyState);
 		if (nav) {
 			switch (nav.type) {
@@ -93,7 +102,7 @@ export class TaskView implements Component {
 				}
 				case "down":  this.scrollOffset += 1; return;
 				case "top":   this.scrollOffset = 0; return;
-				case "bottom": this.scrollOffset = Number.MAX_SAFE_INTEGER; return;
+				case "bottom": this.pinToBottom(); return;
 				case "half_page_up":   this.scrollOffset = Math.max(0, this.scrollOffset - 15); return;
 				case "half_page_down": this.scrollOffset += 15; return;
 				case "enter": return;
@@ -251,6 +260,7 @@ export class TaskView implements Component {
 				lines.push(...renderTranscriptEntries(this.transcriptEntries, width, {
 					cwd: this.transcriptCwd,
 					...this.transcriptRenderConfig,
+					expandToolOutput: this.expandToolOutput,
 				}));
 			}
 		}
@@ -267,6 +277,7 @@ export class TaskView implements Component {
 
 		lines.push(horizontalRule(width));
 		const footerKeys: Array<[string, string]> = [["j/k", "scroll"], ["gg/G", "top/bot"], ["C-d/u", "page"]];
+		if (this.shouldRenderTranscriptSection()) footerKeys.push(["C-o", "tools"]);
 		footerKeys.push(["Alt-a", "actions"]);
 		if (this.getTranscriptSessionFile(ts)) footerKeys.push(["t", "transcript"]);
 		if (ts?.status === "running") footerKeys.push(["x", "cancel"]);
@@ -396,5 +407,13 @@ export class TaskView implements Component {
 			lines.push(coloredPrefix);
 		}
 		return lines;
+	}
+
+	private isAtBottom(): boolean {
+		return this.contentHeight > 0 && this.scrollOffset >= Math.max(0, this.contentHeight - 1);
+	}
+
+	private pinToBottom(): void {
+		this.scrollOffset = Number.MAX_SAFE_INTEGER;
 	}
 }

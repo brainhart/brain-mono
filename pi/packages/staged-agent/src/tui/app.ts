@@ -779,8 +779,16 @@ export class TuiApp {
 				entry.view.setEntries(transcript.entries, transcript.cwd);
 				this.tui.requestRender();
 			},
-			() => {
-				// Best-effort background refresh while a transcript view is open.
+			(err) => {
+				if (!this.started || this.transcriptLoadSeq !== loadSeq) {
+					return;
+				}
+				const active = this.activeView;
+				if (active.type !== "transcript" || active.view !== entry.view) {
+					return;
+				}
+				entry.view.setError(err instanceof Error ? err.message : String(err));
+				this.tui.requestRender();
 			},
 		);
 	}

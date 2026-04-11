@@ -8,7 +8,7 @@
 
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { AssistantMessage, ToolResultMessage, UserMessage } from "@mariozechner/pi-ai";
-import { Container, Spacer, type Component, type TUI } from "@mariozechner/pi-tui";
+import { Container, Spacer, matchesKey, type Component, type TUI } from "@mariozechner/pi-tui";
 import {
 	AssistantMessageComponent,
 	BashExecutionComponent,
@@ -40,6 +40,7 @@ export type TranscriptRenderOptions = {
 	showImages?: boolean;
 	hideThinkingBlock?: boolean;
 	hiddenThinkingLabel?: string;
+	expandToolOutput?: boolean;
 };
 
 type BashExecutionMessage = AgentMessage & {
@@ -117,6 +118,7 @@ export function renderTranscriptEntries(
 	const toolOptions: ToolExecutionOptions = {
 		showImages: opts?.showImages ?? true,
 	};
+	const expandToolOutput = opts?.expandToolOutput ?? false;
 	const hideThinkingBlock = opts?.hideThinkingBlock ?? false;
 	const hiddenThinkingLabel = opts?.hiddenThinkingLabel ?? "Thinking...";
 
@@ -129,7 +131,7 @@ export function renderTranscriptEntries(
 					ui,
 					bashMessage.excludeFromContext,
 				);
-				component.setExpanded(true);
+				component.setExpanded(expandToolOutput);
 				if (bashMessage.output) {
 					component.appendOutput(bashMessage.output);
 				}
@@ -219,7 +221,7 @@ export function renderTranscriptEntries(
 					ui,
 					cwd,
 				);
-				component.setExpanded(true);
+				component.setExpanded(expandToolOutput);
 				container.addChild(component);
 				const failure = toolFailureMessage(assistantMessage);
 				if (failure) {
@@ -250,7 +252,7 @@ export function renderTranscriptEntries(
 				ui,
 				cwd,
 			);
-			orphanedComponent.setExpanded(true);
+			orphanedComponent.setExpanded(expandToolOutput);
 			orphanedComponent.updateResult(resultMessage);
 			container.addChild(orphanedComponent);
 			continue;
@@ -287,6 +289,7 @@ export class TranscriptView implements Component {
 	private sessionId: string;
 	private loading = false;
 	private error: string | undefined;
+	private expandToolOutput = false;
 	onAction: ((action: TranscriptViewAction) => void) | undefined;
 
 	constructor(taskId: string, sessionId: string) {
@@ -295,9 +298,12 @@ export class TranscriptView implements Component {
 	}
 
 	setEntries(entries: TranscriptEntry[], cwd?: string): void {
+		const wasAtBottom = this.isAtBottom();
 		this.entries = entries;
 		this.cwd = cwd;
+		this.error = undefined;
 		this.loading = false;
+		if (wasAtBottom) this.pinToBottom();
 	}
 
 	setRenderOptions(options: TranscriptRenderOptions | undefined): void {
@@ -306,6 +312,7 @@ export class TranscriptView implements Component {
 
 	setLoading(loading: boolean): void {
 		this.loading = loading;
+		if (loading) this.error = undefined;
 	}
 
 	setError(error: string): void {
@@ -316,13 +323,19 @@ export class TranscriptView implements Component {
 	invalidate(): void {}
 
 	handleInput(data: string): void {
+		if (matchesKey(data, "ctrl+o")) {
+			const wasAtBottom = this.isAtBottom();
+			this.expandToolOutput = !this.expandToolOutput;
+			if (wasAtBottom) this.pinToBottom();
+			return;
+		}
 		const nav = parseNavKey(data, this.keyState);
 		if (!nav) return;
 		switch (nav.type) {
 			case "up":   this.scrollOffset = clampScroll(this.scrollOffset - 3, this.contentHeight); return;
 			case "down": this.scrollOffset = clampScroll(this.scrollOffset + 3, this.contentHeight); return;
 			case "top":  this.scrollOffset = 0; return;
-			case "bottom": this.scrollOffset = clampScroll(this.contentHeight, this.contentHeight); return;
+			case "bottom": this.pinToBottom(); return;
 			case "half_page_up":   this.scrollOffset = clampScroll(this.scrollOffset - 20, this.contentHeight); return;
 			case "half_page_down": this.scrollOffset = clampScroll(this.scrollOffset + 20, this.contentHeight); return;
 			case "back":  this.onAction?.({ type: "back" }); return;
@@ -357,11 +370,12 @@ export class TranscriptView implements Component {
 			lines.push(...renderTranscriptEntries(this.entries, width, {
 				...this.renderOptions,
 				cwd: this.cwd,
+				expandToolOutput: this.expandToolOutput,
 			}));
 		}
 
 		lines.push(horizontalRule(width));
-		lines.push(renderFooter([["j/k", "scroll"], ["gg/G", "top/bot"], ["C-d/u", "page"], ["h/esc", "back"], ["?", "help"], ["q", "quit"]], { mode: "NORMAL" }));
+		lines.push(renderFooter([["j/k", "scroll"], ["gg/G", "top/bot"], ["C-d/u", "page"], ["C-o", "tools"], ["h/esc", "back"], ["?", "help"], ["q", "quit"]], { mode: "NORMAL" }));
 
 		this.contentHeight = lines.length;
 		const maxScroll = Math.max(0, lines.length - 1);
@@ -369,8 +383,12 @@ export class TranscriptView implements Component {
 		return this.scrollOffset > 0 ? lines.slice(this.scrollOffset) : lines;
 	}
 
-	private renderEntry(_entry: TranscriptEntry, _width: number): string[] {
-		return [];
+	private isAtBottom(): boolean {
+		return this.contentHeight > 0 && this.scrollOffset >= Math.max(0, this.contentHeight - 1);
+	}
+
+	private pinToBottom(): void {
+		this.scrollOffset = Number.MAX_SAFE_INTEGER;
 	}
 
 }

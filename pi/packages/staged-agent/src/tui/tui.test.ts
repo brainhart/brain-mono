@@ -14,6 +14,7 @@ import { StageView } from "./views/stage.js";
 import { TaskView } from "./views/task.js";
 import { TaskActionMenuView } from "./views/task-actions.js";
 import { HelpView } from "./views/help.js";
+import { TranscriptView } from "./views/transcript.js";
 import type { JobState } from "../state.js";
 import type { JobDefinition } from "../types.js";
 import { singleTaskProfile } from "../profiles.js";
@@ -131,6 +132,48 @@ function makeState(): JobState {
 		transitions: [],
 		tokenUsage: { inputTokens: 5000, outputTokens: 2000, totalTokens: 7000 },
 	};
+}
+
+function makeReadTranscriptEntries(totalLines: number): [AssistantMessage, ToolResultMessage] {
+	return [
+		{
+			role: "assistant",
+			content: [
+				{
+					type: "toolCall",
+					id: "call-read",
+					name: "read",
+					arguments: { path: "src/api.ts" },
+				},
+			],
+			api: "openai-responses",
+			provider: "openai",
+			model: "gpt-5",
+			usage: {
+				input: 1,
+				output: 1,
+				cacheRead: 0,
+				cacheWrite: 0,
+				totalTokens: 2,
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+			},
+			stopReason: "toolUse",
+			timestamp: Date.now(),
+		} satisfies AssistantMessage,
+		{
+			role: "toolResult",
+			toolCallId: "call-read",
+			toolName: "read",
+			content: [
+				{
+					type: "text",
+					text: Array.from({ length: totalLines }, (_, index) => `read output line ${index}`).join("\n"),
+				},
+			],
+			isError: false,
+			timestamp: Date.now() + 1,
+		} satisfies ToolResultMessage,
+	];
 }
 
 describe("DashboardView", () => {
@@ -528,6 +571,37 @@ describe("TaskView", () => {
 		assert.ok(plain.includes("Found 42 lines in src/api.ts"));
 	});
 
+	it("collapses transcript tool output by default and expands it with ctrl-o", () => {
+		const def = makeDefinition();
+		const taskDef = def.stages[1].tasks[0];
+		const view = new TaskView("impl-t1", taskDef);
+		view.setState(makeState());
+		view.setTranscriptEntries(makeReadTranscriptEntries(25), "pi-session-7", "/workspace/pi/packages/staged-agent");
+
+		const collapsed = stripAnsi(view.render(100).join("\n"));
+		assert.ok(collapsed.includes("read output line 0"));
+		assert.ok(!collapsed.includes("read output line 24"));
+
+		view.handleInput("\x0f");
+		const expanded = stripAnsi(view.render(100).join("\n"));
+		assert.ok(expanded.includes("read output line 24"));
+	});
+
+	it("keeps transcript tool expansion after transcript refreshes", () => {
+		const def = makeDefinition();
+		const taskDef = def.stages[1].tasks[0];
+		const view = new TaskView("impl-t1", taskDef);
+		view.setState(makeState());
+		view.setTranscriptEntries(makeReadTranscriptEntries(25), "pi-session-7", "/workspace/pi/packages/staged-agent");
+
+		view.handleInput("\x0f");
+		view.render(100);
+
+		view.setTranscriptEntries(makeReadTranscriptEntries(35), "pi-session-7", "/workspace/pi/packages/staged-agent");
+		const refreshed = stripAnsi(view.render(100).join("\n"));
+		assert.ok(refreshed.includes("read output line 34"));
+	});
+
 	it("renders orphaned tool results instead of dropping them", () => {
 		const def = makeDefinition();
 		const taskDef = def.stages[1].tasks[0];
@@ -548,6 +622,73 @@ describe("TaskView", () => {
 		const plain = stripAnsi(output);
 		assert.ok(plain.includes("read"));
 		assert.ok(plain.includes("Recovered orphaned tool result"));
+	});
+
+	it("stays pinned to bottom when transcript content grows after reaching bottom", () => {
+		const def = makeDefinition();
+		const taskDef = def.stages[1].tasks[1];
+		const view = new TaskView("impl-t2", taskDef);
+		const state = makeState();
+		const task = state.tasks.get("impl-t2");
+		assert.ok(task);
+		task.progressEntries = [];
+		task.progressLines = [];
+		view.setState(state);
+		view.setTranscriptEntries(
+			Array.from({ length: 40 }, (_, index) => ({
+				role: "user",
+				content: `transcript line ${index}`,
+				timestamp: Date.now() + index,
+			} satisfies UserMessage)),
+			"pi-session-7",
+			"/tmp",
+		);
+
+		view.render(80);
+		view.handleInput("G");
+		view.render(80);
+		const oldScrollOffset = (view as any).scrollOffset as number;
+
+		view.setTranscriptEntries(
+			Array.from({ length: 80 }, (_, index) => ({
+				role: "user",
+				content: `transcript line ${index}`,
+				timestamp: Date.now() + index,
+			} satisfies UserMessage)),
+			"pi-session-7",
+			"/tmp",
+		);
+		view.render(80);
+
+		assert.ok(
+			(view as any).scrollOffset > oldScrollOffset,
+			"bottom-pinned task view should follow transcript growth without another G press",
+		);
+	});
+});
+
+describe("TranscriptView", () => {
+	it("expands tool output with ctrl-o and keeps bottom pinned across refreshes", () => {
+		const view = new TranscriptView("impl-t1", "pi-session-7");
+		view.setEntries(makeReadTranscriptEntries(25), "/workspace/pi/packages/staged-agent");
+
+		const collapsed = stripAnsi(view.render(100).join("\n"));
+		assert.ok(!collapsed.includes("read output line 24"));
+
+		view.handleInput("\x0f");
+		const expanded = stripAnsi(view.render(100).join("\n"));
+		assert.ok(expanded.includes("read output line 24"));
+
+		view.handleInput("G");
+		view.render(100);
+		const oldScrollOffset = (view as any).scrollOffset as number;
+
+		view.setEntries(makeReadTranscriptEntries(40), "/workspace/pi/packages/staged-agent");
+		view.render(100);
+		assert.ok(
+			(view as any).scrollOffset > oldScrollOffset,
+			"bottom-pinned transcript view should follow transcript growth without another G press",
+		);
 	});
 });
 
@@ -575,6 +716,7 @@ describe("HelpView", () => {
 		assert.ok(plain.includes("/ l"), "should list enter/l key");
 		assert.ok(plain.includes("Drill into"), "should describe drill action");
 		assert.ok(plain.includes("Alt-a"), "should show task actions shortcut");
+		assert.ok(plain.includes("Ctrl-o"), "should show tool toggle shortcut");
 	});
 
 	it("emits close on escape", () => {

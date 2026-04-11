@@ -37,6 +37,7 @@ const SECTIONS: Array<{ title: string; keys: Array<[string, string]> }> = [
 		keys: [
 			["Alt-a / :", "Open task action menu"],
 			["t", "View session transcript"],
+			["Ctrl-o", "Collapse / expand tool output"],
 			["x", "Cancel single running task (legacy shortcut)"],
 		],
 	},

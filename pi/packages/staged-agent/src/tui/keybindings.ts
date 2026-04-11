@@ -7,7 +7,7 @@
  */
 
 import { matchesKey } from "@mariozechner/pi-tui";
-import { initTheme, keyText, rawKeyHint } from "@mariozechner/pi-coding-agent";
+import { initTheme, rawKeyHint } from "@mariozechner/pi-coding-agent";
 
 export type NavAction =
 	| { type: "up" }
@@ -91,7 +91,7 @@ export function renderFooter(
 		parts.push(rawKeyHint(opts.mode, ""));
 	}
 	for (const [key, desc] of keys) {
-		parts.push(rawKeyHint(keyText(key as never), desc));
+		parts.push(rawKeyHint(key, desc));
 	}
 	return ` ${parts.join("  ")}`;
 }

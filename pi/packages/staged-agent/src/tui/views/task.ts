@@ -106,12 +106,10 @@ export class TaskView implements Component {
 			this.onAction?.({ type: "open_actions", taskId: this.taskId });
 		} else if (matchesKey(data, "t")) {
 			const ts = this.state?.tasks.get(this.taskId);
-			if (ts?.result?.signals) {
-				const sessionFile = ts.result.signals.sessionFile as string | undefined;
-				const sessionId = ts.result.signals.sessionId as string | undefined ?? ts.sessionId;
-				if (sessionFile) {
-					this.onAction?.({ type: "view_transcript", taskId: this.taskId, sessionFile, sessionId });
-				}
+			const sessionFile = this.getTranscriptSessionFile(ts);
+			const sessionId = this.getTranscriptSessionId(ts);
+			if (sessionFile) {
+				this.onAction?.({ type: "view_transcript", taskId: this.taskId, sessionFile, sessionId });
 			}
 		} else if (matchesKey(data, "x")) {
 			const ts = this.state?.tasks.get(this.taskId);
@@ -270,7 +268,7 @@ export class TaskView implements Component {
 		lines.push(horizontalRule(width));
 		const footerKeys: Array<[string, string]> = [["j/k", "scroll"], ["gg/G", "top/bot"], ["C-d/u", "page"]];
 		footerKeys.push(["Alt-a", "actions"]);
-		if (typeof ts?.result?.signals?.sessionFile === "string") footerKeys.push(["t", "transcript"]);
+		if (this.getTranscriptSessionFile(ts)) footerKeys.push(["t", "transcript"]);
 		if (ts?.status === "running") footerKeys.push(["x", "cancel"]);
 		footerKeys.push(["h/esc", "back"], ["?", "help"], ["q", "quit"]);
 		lines.push(renderFooter(footerKeys, { mode: "NORMAL" }));
@@ -316,6 +314,24 @@ export class TaskView implements Component {
 	private shouldPreferTranscriptLog(status: string): boolean {
 		if (status !== "running") return this.shouldRenderTranscriptSection();
 		return this.transcriptLoading || this.transcriptEntries.length > 0;
+	}
+
+	private getTranscriptSessionFile(
+		ts: JobState["tasks"] extends Map<any, infer V> ? V | undefined : undefined,
+	): string | undefined {
+		if (!ts) return undefined;
+		return typeof ts.result?.signals?.sessionFile === "string"
+			? ts.result.signals.sessionFile
+			: ts.sessionFile;
+	}
+
+	private getTranscriptSessionId(
+		ts: JobState["tasks"] extends Map<any, infer V> ? V | undefined : undefined,
+	): string | undefined {
+		if (!ts) return undefined;
+		return typeof ts.result?.signals?.sessionId === "string"
+			? ts.result.signals.sessionId
+			: ts.sessionId;
 	}
 
 	private formatValue(value: unknown): string {

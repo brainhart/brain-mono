@@ -275,6 +275,7 @@ async function driveSession(
 		signals: {
 			sessionFile: session.sessionFile,
 			sessionId: session.sessionId,
+			sessionCwd: session.sessionManager.getCwd(),
 			cwd: session.sessionManager.getCwd(),
 		},
 	});

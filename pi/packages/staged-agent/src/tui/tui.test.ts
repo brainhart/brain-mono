@@ -185,6 +185,16 @@ describe("DashboardView", () => {
 		view.handleInput("?");
 		assert.deepEqual(actions, ["help"]);
 	});
+
+	it("keeps selected stage rows within terminal width", () => {
+		const def = makeDefinition();
+		const view = new DashboardView(def);
+		view.setState(makeState());
+		const lines = view.render(80);
+		for (const line of lines) {
+			assert.ok(visibleWidth(line) <= 80, `line exceeds width: ${stripAnsi(line)}`);
+		}
+	});
 });
 
 describe("StageView", () => {
@@ -220,6 +230,16 @@ describe("StageView", () => {
 		view.handleInput("\r");      // enter
 		const drill = actions.find((a) => a.type === "drill_task");
 		assert.ok(drill);
+	});
+
+	it("keeps selected task rows within terminal width", () => {
+		const def = makeDefinition();
+		const view = new StageView("impl", def.stages[1]);
+		view.setState(makeState());
+		const lines = view.render(80);
+		for (const line of lines) {
+			assert.ok(visibleWidth(line) <= 80, `line exceeds width: ${stripAnsi(line)}`);
+		}
 	});
 });
 
@@ -473,6 +493,28 @@ describe("TaskView", () => {
 		assert.ok(plain.includes("read"));
 		assert.ok(plain.includes("Found 42 lines in src/api.ts"));
 	});
+
+	it("renders orphaned tool results instead of dropping them", () => {
+		const def = makeDefinition();
+		const taskDef = def.stages[1].tasks[0];
+		const view = new TaskView("impl-t1", taskDef);
+		view.setState(makeState());
+		view.setTranscriptEntries([
+			{
+				role: "toolResult",
+				toolCallId: "missing-call",
+				toolName: "read",
+				content: [{ type: "text", text: "Recovered orphaned tool result" }],
+				isError: false,
+				timestamp: Date.now(),
+			} satisfies ToolResultMessage,
+		], "pi-session-7", "/workspace/pi/packages/staged-agent");
+
+		const output = view.render(80).join("\n");
+		const plain = stripAnsi(output);
+		assert.ok(plain.includes("read"));
+		assert.ok(plain.includes("Recovered orphaned tool result"));
+	});
 });
 
 describe("HelpView", () => {
@@ -705,6 +747,53 @@ describe("projectState hardening", () => {
 		const ts = state.tasks.get("t")!;
 		assert.equal(ts.progressLines.length, 50);
 		assert.ok(ts.progressLines[0].includes("line 10"));
+	});
+
+	it("clears stale result and adopts live session signals on retries", async () => {
+		const { projectState } = await import("../state.js");
+		const events: import("../events.js").RuntimeEvent[] = [
+			{ type: "job_submitted", jobId: "j", stageIds: ["s"], timestamp: 1 },
+			{ type: "task_started", jobId: "j", stageId: "s", taskId: "t", taskAttemptId: "t:1", stageAttemptId: "s:1", attemptNumber: 1, timestamp: 2 },
+			{
+				type: "task_completed",
+				jobId: "j",
+				stageId: "s",
+				taskId: "t",
+				taskAttemptId: "t:1",
+				result: {
+					status: "success",
+					summary: "old result",
+					signals: { sessionFile: "/tmp/old.jsonl", sessionId: "old-session" },
+				},
+				timestamp: 3,
+			},
+			{ type: "task_started", jobId: "j", stageId: "s", taskId: "t", taskAttemptId: "t:2", stageAttemptId: "s:2", attemptNumber: 2, timestamp: 4 },
+			{
+				type: "task_progress",
+				jobId: "j",
+				stageId: "s",
+				taskId: "t",
+				taskAttemptId: "t:2",
+				progress: {
+					kind: "status",
+					text: "Attached Pi session",
+					signals: {
+						sessionFile: "/tmp/new.jsonl",
+						sessionId: "pi-session-2",
+						sessionCwd: "/workspace/pi/packages/staged-agent",
+					},
+				},
+				timestamp: 5,
+			},
+		];
+		const state = projectState(events);
+		const task = state.tasks.get("t");
+		assert.ok(task);
+		assert.equal(task.status, "running");
+		assert.equal(task.result, undefined);
+		assert.equal(task.sessionFile, "/tmp/new.jsonl");
+		assert.equal(task.sessionId, "pi-session-2");
+		assert.equal(task.sessionCwd, "/workspace/pi/packages/staged-agent");
 	});
 
 	it("tracks pause reason and resume input", async () => {

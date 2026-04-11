@@ -241,6 +241,19 @@ export function renderTranscriptEntries(
 				pendingTools.delete(resultMessage.toolCallId);
 				continue;
 			}
+			const orphanedComponent = new ToolExecutionComponent(
+				resultMessage.toolName,
+				resultMessage.toolCallId,
+				{},
+				toolOptions,
+				undefined,
+				ui,
+				cwd,
+			);
+			orphanedComponent.setExpanded(true);
+			orphanedComponent.updateResult(resultMessage);
+			container.addChild(orphanedComponent);
+			continue;
 		}
 		addMessageToChat(message);
 	}

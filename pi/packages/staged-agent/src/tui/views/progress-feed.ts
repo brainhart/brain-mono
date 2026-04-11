@@ -6,7 +6,7 @@
  * rendering, and status messages with spinners.
  */
 
-import { Box, Container, Spacer, Text, type Component } from "@mariozechner/pi-tui";
+import { Box, Container, Spacer, Text, truncateToWidth, type Component } from "@mariozechner/pi-tui";
 import type { TaskProgress } from "../../types.js";
 
 const ESC = "\x1b[";
@@ -30,7 +30,8 @@ const statusBg = (text: string) => BG_STATUS + text + RESET;
 /**
  * Renders a single TaskProgress entry as a pi-tui Component.
  */
-function renderProgressEntry(entry: TaskProgress): Component {
+function renderProgressEntry(entry: TaskProgress, width: number): Component {
+	const contentWidth = Math.max(1, width - 2);
 	switch (entry.kind) {
 		case "tool_call": {
 			const box = new Box(1, 0, toolBg);
@@ -38,9 +39,7 @@ function renderProgressEntry(entry: TaskProgress): Component {
 			box.addChild(new Text(title, 0, 0));
 			if (entry.toolArgs && Object.keys(entry.toolArgs).length > 0) {
 				const argsStr = JSON.stringify(entry.toolArgs, null, 2);
-				const truncated = argsStr.length > 200
-					? argsStr.slice(0, 200) + "…"
-					: argsStr;
+				const truncated = truncateToWidth(argsStr, contentWidth);
 				box.addChild(new Text(c(truncated, FG_GRAY), 0, 0));
 			}
 			return box;
@@ -50,7 +49,7 @@ function renderProgressEntry(entry: TaskProgress): Component {
 			const box = new Box(1, 0, toolBg);
 			const prefix = c("→ ", FG_CYAN, DIM);
 			const text = entry.text ?? "(no output)";
-			const truncated = text.length > 300 ? text.slice(0, 300) + "…" : text;
+			const truncated = truncateToWidth(text, Math.max(1, contentWidth - 2));
 			box.addChild(new Text(prefix + c(truncated, FG_GRAY), 0, 0));
 			return box;
 		}
@@ -58,7 +57,7 @@ function renderProgressEntry(entry: TaskProgress): Component {
 		case "text": {
 			const container = new Container();
 			if (entry.text) {
-				container.addChild(new Text(entry.text, 1, 0));
+				container.addChild(new Text(truncateToWidth(entry.text, Math.max(1, width - 1)), 1, 0));
 			}
 			return container;
 		}
@@ -66,13 +65,13 @@ function renderProgressEntry(entry: TaskProgress): Component {
 		case "status": {
 			const box = new Box(1, 0, statusBg);
 			const spinner = c("⟳ ", FG_YELLOW);
-			box.addChild(new Text(spinner + c(entry.text ?? "", FG_WHITE, DIM), 0, 0));
+			box.addChild(new Text(spinner + c(truncateToWidth(entry.text ?? "", Math.max(1, contentWidth - 2)), FG_WHITE, DIM), 0, 0));
 			return box;
 		}
 
 		default: {
 			const container = new Container();
-			container.addChild(new Text(c(`[${entry.kind}] ${entry.text ?? ""}`, FG_GRAY), 1, 0));
+			container.addChild(new Text(c(truncateToWidth(`[${entry.kind}] ${entry.text ?? ""}`, Math.max(1, width - 1)), FG_GRAY), 1, 0));
 			return container;
 		}
 	}
@@ -108,7 +107,7 @@ export class ProgressFeed implements Component {
 
 		const visible = this.entries.slice(-this.maxVisible);
 		for (const entry of visible) {
-			container.addChild(renderProgressEntry(entry));
+			container.addChild(renderProgressEntry(entry, width));
 		}
 
 		if (this.entries.length > this.maxVisible) {

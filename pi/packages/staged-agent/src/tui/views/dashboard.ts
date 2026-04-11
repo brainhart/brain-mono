@@ -112,10 +112,11 @@ export class DashboardView implements Component {
 			lines.push(colored("  Press ", FG_GRAY) + colored("n", FG_CYAN, BOLD) + colored(" to submit a new task.", FG_GRAY));
 			lines.push("");
 		} else {
+			const rowWidth = Math.max(1, width - 3);
 			for (let i = 0; i < this.stageIds.length; i++) {
 				const sid = this.stageIds[i];
 				const ss = state.stages.get(sid);
-				const line = this.renderStageLine(sid, ss, width, state, now);
+				const line = this.renderStageLine(sid, ss, rowWidth, state, now);
 				const prefix = i === this.cursor
 					? colored(" ▶ ", FG_CYAN, BOLD)
 					: "   ";

@@ -264,6 +264,64 @@ describe("TaskView", () => {
 		view.handleInput("\x1ba");
 		assert.deepEqual(actions, ["open_actions"]);
 	});
+
+	it("shows the runtime session id when available", () => {
+		const def = makeDefinition();
+		const taskDef = def.stages[1].tasks[0];
+		const view = new TaskView("impl-t1", taskDef);
+		const state = makeState();
+		const task = state.tasks.get("impl-t1");
+		assert.ok(task);
+		task.sessionId = "session-1";
+		task.result = {
+			status: "success",
+			summary: "Auth done",
+			signals: {
+				sessionId: "pi-session-7",
+				sessionFile: "/tmp/pi-session-7.json",
+			},
+		};
+		view.setState(state);
+
+		const output = view.render(80).join("\n");
+		const plain = stripAnsi(output);
+		assert.ok(plain.includes("session: pi-session-7"));
+		assert.ok(!plain.includes("session: session-1"));
+	});
+
+	it("only opens transcript when a session file exists", () => {
+		const def = makeDefinition();
+		const taskDef = def.stages[1].tasks[0];
+		const view = new TaskView("impl-t1", taskDef);
+		const state = makeState();
+		const task = state.tasks.get("impl-t1");
+		assert.ok(task);
+
+		task.result = {
+			status: "success",
+			summary: "Auth done",
+			signals: {
+				sessionId: "pi-session-7",
+			},
+		};
+		view.setState(state);
+
+		const actions: string[] = [];
+		view.onAction = (a) => actions.push(a.type);
+		view.handleInput("t");
+		assert.deepEqual(actions, []);
+
+		task.result = {
+			status: "success",
+			summary: "Auth done",
+			signals: {
+				sessionId: "pi-session-7",
+				sessionFile: "/tmp/pi-session-7.json",
+			},
+		};
+		view.handleInput("t");
+		assert.deepEqual(actions, ["view_transcript"]);
+	});
 });
 
 describe("HelpView", () => {

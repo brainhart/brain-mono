@@ -36,6 +36,8 @@ export type TuiAppOpts = {
 	terminal?: Terminal;
 	/** Working directory for resolving session files. */
 	cwd?: string;
+	/** Invoked when the user requests to quit the TUI. */
+	onQuit?: () => void;
 	/** When true, enables interactive prompt submission via the TUI. */
 	interactive?: boolean;
 	/**
@@ -53,6 +55,7 @@ export class TuiApp {
 	private readonly definition: JobDefinition;
 	private readonly runner: JobRunner;
 	private readonly cwd: string;
+	private readonly onQuit: (() => void) | undefined;
 	private readonly interactive: boolean;
 	private readonly profiles: JobProfile[];
 	private readonly profilesExplicit: boolean;
@@ -75,6 +78,7 @@ export class TuiApp {
 		this.terminal = opts?.terminal ?? new ProcessTerminal();
 		this.tui = new TUI(this.terminal);
 		this.cwd = opts?.cwd ?? process.cwd();
+		this.onQuit = opts?.onQuit;
 		this.interactive = opts?.interactive ?? false;
 		this.profilesExplicit = opts?.profiles !== undefined;
 		this.profiles = opts?.profiles ?? [];
@@ -209,7 +213,7 @@ export class TuiApp {
 				this.showHelp();
 				break;
 			case "quit":
-				this.stop();
+				this.requestQuit();
 				break;
 		}
 	}
@@ -232,7 +236,7 @@ export class TuiApp {
 				this.showHelp();
 				break;
 			case "quit":
-				this.stop();
+				this.requestQuit();
 				break;
 		}
 	}
@@ -255,7 +259,7 @@ export class TuiApp {
 				this.showHelp();
 				break;
 			case "quit":
-				this.stop();
+				this.requestQuit();
 				break;
 		}
 	}
@@ -282,7 +286,7 @@ export class TuiApp {
 				this.tui.requestRender();
 			} else if (a.type === "quit") {
 				this.helpOverlay = undefined;
-				this.stop();
+				this.requestQuit();
 			}
 		};
 		this.syncActiveView();
@@ -294,7 +298,7 @@ export class TuiApp {
 		if (!ts) return;
 		const overlay = new TaskActionMenuView(taskId, {
 			canCancel: ts.status === "running" && !!ts.stageId,
-			canTranscript: !!(ts.result?.signals?.sessionFile || ts.sessionId),
+			canTranscript: typeof ts.result?.signals?.sessionFile === "string",
 			canPauseWithNote: !!ts.stageId,
 			canRetryWithNote: !!ts.stageId && ts.status !== "completed",
 		});
@@ -307,7 +311,7 @@ export class TuiApp {
 			}
 			if (a.type === "quit") {
 				this.taskActionOverlay = undefined;
-				this.stop();
+				this.requestQuit();
 				return;
 			}
 
@@ -322,7 +326,11 @@ export class TuiApp {
 			switch (a.type) {
 				case "transcript":
 					this.taskActionOverlay = undefined;
-					this.openTranscript(taskId, current.result?.signals?.sessionFile as string | undefined, current.sessionId ?? current.result?.signals?.sessionId as string | undefined);
+					this.openTranscript(
+						taskId,
+						current.result?.signals?.sessionFile as string | undefined,
+						current.result?.signals?.sessionId as string | undefined ?? current.sessionId,
+					);
 					return;
 				case "cancel_task":
 					this.taskActionOverlay = undefined;
@@ -406,7 +414,7 @@ export class TuiApp {
 			}
 			if (a.type === "quit") {
 				this.profilePickerOverlay = undefined;
-				this.stop();
+				this.requestQuit();
 				return;
 			}
 			this.profilePickerOverlay = undefined;
@@ -468,8 +476,13 @@ export class TuiApp {
 		switch (action.type) {
 			case "back": this.popView(); break;
 			case "help": this.showHelp(); break;
-			case "quit": this.stop(); break;
+			case "quit": this.requestQuit(); break;
 		}
+	}
+
+	private requestQuit(): void {
+		this.onQuit?.();
+		this.stop();
 	}
 
 	private openTranscript(taskId: string, sessionFile?: string, sessionId?: string): void {

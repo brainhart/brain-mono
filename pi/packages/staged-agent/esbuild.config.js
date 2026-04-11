@@ -9,7 +9,7 @@ const bundlePath = join(binDir, "staged-agent.mjs");
 const wrapperPath = join(binDir, "staged-agent");
 
 await esbuild.build({
-	entryPoints: [join(__dirname, "src", "tui", "demo.ts")],
+	entryPoints: [join(__dirname, "src", "cli.ts")],
 	bundle: true,
 	platform: "node",
 	target: "node22",
@@ -18,6 +18,9 @@ await esbuild.build({
 	sourcemap: false,
 	minify: false,
 	external: [
+		"@mariozechner/pi-coding-agent",
+		"@mariozechner/pi-tui",
+		"@mariozechner/pi-ai",
 		// Native addon loaded at runtime via optional require() —
 		// only needed on Windows for Shift+Tab detection.
 		"koffi",

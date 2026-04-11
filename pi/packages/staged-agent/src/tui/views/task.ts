@@ -61,8 +61,8 @@ export class TaskView implements Component {
 			const ts = this.state?.tasks.get(this.taskId);
 			if (ts?.result?.signals) {
 				const sessionFile = ts.result.signals.sessionFile as string | undefined;
-				const sessionId = ts.sessionId ?? ts.result.signals.sessionId as string | undefined;
-				if (sessionFile || sessionId) {
+				const sessionId = ts.result.signals.sessionId as string | undefined ?? ts.sessionId;
+				if (sessionFile) {
 					this.onAction?.({ type: "view_transcript", taskId: this.taskId, sessionFile, sessionId });
 				}
 			}
@@ -80,6 +80,8 @@ export class TaskView implements Component {
 
 		const lines: string[] = [];
 		const ts = state.tasks.get(this.taskId);
+		const runtimeSessionId = ts?.result?.signals?.sessionId as string | undefined;
+		const displaySessionId = runtimeSessionId ?? ts?.sessionId;
 		const status = ts?.status ?? "pending";
 		const attempt = ts?.attemptCount ?? 0;
 		const now = Date.now();
@@ -99,8 +101,8 @@ export class TaskView implements Component {
 			+ (attempt > 0 ? colored(`  attempt ${attempt}`, FG_YELLOW) : "")
 			+ timeStr,
 		);
-		if (ts?.sessionId) {
-			lines.push(colored(`  session: ${ts.sessionId}`, FG_GRAY, DIM));
+		if (displaySessionId) {
+			lines.push(colored(`  session: ${displaySessionId}`, FG_GRAY, DIM));
 		}
 		lines.push(horizontalRule(width));
 		lines.push("");
@@ -196,7 +198,7 @@ export class TaskView implements Component {
 		lines.push(horizontalRule(width));
 		const footerKeys: Array<[string, string]> = [["j/k", "scroll"], ["gg/G", "top/bot"], ["C-d/u", "page"]];
 		footerKeys.push(["Alt-a", "actions"]);
-		if (ts?.result?.signals?.sessionFile || ts?.sessionId) footerKeys.push(["t", "transcript"]);
+		if (typeof ts?.result?.signals?.sessionFile === "string") footerKeys.push(["t", "transcript"]);
 		if (ts?.status === "running") footerKeys.push(["x", "cancel"]);
 		footerKeys.push(["h/esc", "back"], ["?", "help"], ["q", "quit"]);
 		lines.push(renderFooter(footerKeys, { mode: "NORMAL" }));

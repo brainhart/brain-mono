@@ -25,6 +25,7 @@ export class TaskView implements Component {
 	private state: JobState | undefined;
 	private breadcrumb: string;
 	private transcriptEntries: TranscriptEntry[] = [];
+	private transcriptCwd: string | undefined;
 	private transcriptSessionLabel: string | undefined;
 	private transcriptLoading = false;
 	private transcriptError: string | undefined;
@@ -45,20 +46,23 @@ export class TaskView implements Component {
 		this.transcriptLoading = true;
 		this.transcriptError = undefined;
 	}
-	setTranscriptEntries(entries: TranscriptEntry[], sessionLabel: string): void {
+	setTranscriptEntries(entries: TranscriptEntry[], sessionLabel: string, cwd?: string): void {
 		this.transcriptEntries = entries;
+		this.transcriptCwd = cwd;
 		this.transcriptSessionLabel = sessionLabel;
 		this.transcriptLoading = false;
 		this.transcriptError = undefined;
 	}
 	setTranscriptError(error: string, sessionLabel: string): void {
 		this.transcriptEntries = [];
+		this.transcriptCwd = undefined;
 		this.transcriptSessionLabel = sessionLabel;
 		this.transcriptLoading = false;
 		this.transcriptError = error;
 	}
 	clearTranscript(): void {
 		this.transcriptEntries = [];
+		this.transcriptCwd = undefined;
 		this.transcriptSessionLabel = undefined;
 		this.transcriptLoading = false;
 		this.transcriptError = undefined;
@@ -232,7 +236,7 @@ export class TaskView implements Component {
 				lines.push(colored("    No transcript entries found", FG_GRAY));
 				lines.push("");
 			} else {
-				lines.push(...renderTranscriptEntries(this.transcriptEntries, width));
+				lines.push(...renderTranscriptEntries(this.transcriptEntries, width, { cwd: this.transcriptCwd }));
 			}
 		}
 

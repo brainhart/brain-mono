@@ -562,7 +562,7 @@ describe("TuiApp hardening", () => {
 			capturedPaths.push(p);
 			return {
 				getCwd: () => tmpDir,
-				getEntries: () => [],
+				buildSessionContext: () => ({ messages: [] }),
 			};
 		}) as unknown as typeof originalOpen;
 
@@ -608,7 +608,7 @@ describe("TuiApp hardening", () => {
 				timestamp: Date.now(),
 			} satisfies AssistantMessage,
 		];
-		(app as any).loadTranscript = async () => entries;
+		(app as any).loadTranscript = async () => ({ entries, cwd: "/tmp" });
 		(app as any).state = makeState();
 		const task = (app as any).state.tasks.get("impl-t1");
 		assert.ok(task);

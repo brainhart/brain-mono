@@ -20,7 +20,7 @@ import { TaskView } from "./views/task.js";
 import { HelpView } from "./views/help.js";
 import { EventLogView } from "./views/event-log.js";
 import { DagView } from "./views/dag.js";
-import { TranscriptView, parseTranscript } from "./views/transcript.js";
+import { TranscriptView } from "./views/transcript.js";
 import { TaskActionMenuView } from "./views/task-actions.js";
 import { TextPromptView } from "./views/text-prompt.js";
 import { ProfilePickerView } from "./views/profile-picker.js";
@@ -517,12 +517,12 @@ export class TuiApp {
 		this.taskTranscriptLoads.set(taskId, { loadSeq, sessionFile, view });
 		view.setTranscriptLoading(displayId);
 		this.loadTranscript(sessionFile).then(
-			(entries) => {
+			(transcript) => {
 				const activeLoad = this.taskTranscriptLoads.get(taskId);
 				if (!this.started || !activeLoad || activeLoad.loadSeq !== loadSeq || activeLoad.view !== view) {
 					return;
 				}
-				view.setTranscriptEntries(entries, displayId);
+				view.setTranscriptEntries(transcript.entries, displayId, transcript.cwd);
 				this.tui.requestRender();
 			},
 			(err) => {
@@ -548,11 +548,11 @@ export class TuiApp {
 			this.tui.requestRender();
 
 			this.loadTranscript(sessionFile).then(
-				(entries) => {
+				(transcript) => {
 					if (!this.started || this.transcriptLoadSeq !== loadSeq || this.activeView.view !== view) {
 						return;
 					}
-					view.setEntries(entries);
+					view.setEntries(transcript.entries, transcript.cwd);
 					this.tui.requestRender();
 				},
 				(err) => {
@@ -568,15 +568,18 @@ export class TuiApp {
 		}
 	}
 
-	private async loadTranscript(sessionFile: string): Promise<import("./views/transcript.js").TranscriptEntry[]> {
+	private async loadTranscript(sessionFile: string): Promise<import("./views/transcript.js").TranscriptData> {
 		try {
 			const { SessionManager } = await import("@mariozechner/pi-coding-agent");
 			const resolvedPath = isAbsolute(sessionFile)
 				? sessionFile
 				: resolve(this.cwd, sessionFile);
 			const sm = SessionManager.open(resolvedPath);
-			const entries = sm.getEntries();
-			return parseTranscript(entries, { cwd: sm.getCwd() });
+			const sessionContext = sm.buildSessionContext();
+			return {
+				entries: sessionContext.messages as import("./views/transcript.js").TranscriptEntry[],
+				cwd: sm.getCwd(),
+			};
 		} catch (err) {
 			throw new Error(`Failed to load session: ${err instanceof Error ? err.message : String(err)}`);
 		}

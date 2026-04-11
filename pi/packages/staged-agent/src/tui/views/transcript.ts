@@ -29,6 +29,10 @@ import {
 import { parseNavKey, KeyState, clampScroll, renderFooter } from "../keybindings.js";
 
 export type TranscriptEntry = AgentMessage;
+export type TranscriptData = {
+	entries: TranscriptEntry[];
+	cwd?: string;
+};
 
 type BashExecutionMessage = AgentMessage & {
 	role: "bashExecution";
@@ -91,12 +95,17 @@ export type TranscriptViewAction =
 	| { type: "help" }
 	| { type: "quit" };
 
-export function renderTranscriptEntries(entries: TranscriptEntry[], width: number): string[] {
+export function renderTranscriptEntries(
+	entries: TranscriptEntry[],
+	width: number,
+	opts?: { cwd?: string },
+): string[] {
 	ensureInteractiveTheme();
 	const markdownTheme = getMarkdownTheme();
 	const container = new Container();
 	const pendingTools = new Map<string, ToolExecutionComponent>();
 	const ui = { requestRender() {} } as unknown as TUI;
+	const cwd = opts?.cwd ?? process.cwd();
 
 	const addMessageToChat = (message: TranscriptEntry): void => {
 		switch (message.role) {
@@ -190,7 +199,7 @@ export function renderTranscriptEntries(entries: TranscriptEntry[], width: numbe
 					{ showImages: true },
 					undefined,
 					ui,
-					process.cwd(),
+					cwd,
 				);
 				component.setExpanded(true);
 				container.addChild(component);
@@ -238,6 +247,7 @@ export function parseTranscript(
 
 export class TranscriptView implements Component {
 	private entries: TranscriptEntry[] = [];
+	private cwd: string | undefined;
 	private scrollOffset = 0;
 	private contentHeight = 0;
 	private readonly keyState = new KeyState();
@@ -252,8 +262,9 @@ export class TranscriptView implements Component {
 		this.sessionId = sessionId;
 	}
 
-	setEntries(entries: TranscriptEntry[]): void {
+	setEntries(entries: TranscriptEntry[], cwd?: string): void {
 		this.entries = entries;
+		this.cwd = cwd;
 		this.loading = false;
 	}
 
@@ -307,7 +318,7 @@ export class TranscriptView implements Component {
 			lines.push(colored("  No transcript entries found", FG_GRAY));
 			lines.push("");
 		} else {
-			lines.push(...renderTranscriptEntries(this.entries, width));
+			lines.push(...renderTranscriptEntries(this.entries, width, { cwd: this.cwd }));
 		}
 
 		lines.push(horizontalRule(width));

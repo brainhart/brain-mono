@@ -7,6 +7,7 @@
  */
 
 import { TUI, ProcessTerminal, type Terminal } from "@mariozechner/pi-tui";
+import { isAbsolute, resolve } from "node:path";
 import type { JobRunner } from "../job-runner.js";
 import type { JobDefinition, StageId, TaskId, TaskDefinition } from "../types.js";
 import type { JobProfile } from "../profiles.js";
@@ -71,6 +72,7 @@ export class TuiApp {
 	private renderTimer: ReturnType<typeof setInterval> | undefined;
 	private readonly startTime: number;
 	private started = false;
+	private transcriptLoadSeq = 0;
 
 	constructor(runner: JobRunner, definition: JobDefinition, opts?: TuiAppOpts) {
 		this.runner = runner;
@@ -274,6 +276,7 @@ export class TuiApp {
 		if (this.viewStack.length > 1) {
 			this.viewStack.pop();
 			this.syncActiveView();
+			this.tui.requestRender();
 		}
 	}
 
@@ -486,6 +489,7 @@ export class TuiApp {
 	}
 
 	private openTranscript(taskId: string, sessionFile?: string, sessionId?: string): void {
+		const loadSeq = ++this.transcriptLoadSeq;
 		const displayId = sessionId ?? sessionFile ?? "unknown";
 		const view = new TranscriptView(taskId, displayId);
 		view.onAction = (a) => this.handleGenericViewAction(a);
@@ -497,10 +501,16 @@ export class TuiApp {
 
 			this.loadTranscript(sessionFile).then(
 				(entries) => {
+					if (!this.started || this.transcriptLoadSeq !== loadSeq || this.activeView.view !== view) {
+						return;
+					}
 					view.setEntries(entries);
 					this.tui.requestRender();
 				},
 				(err) => {
+					if (!this.started || this.transcriptLoadSeq !== loadSeq || this.activeView.view !== view) {
+						return;
+					}
 					view.setError(err instanceof Error ? err.message : String(err));
 					this.tui.requestRender();
 				},
@@ -513,7 +523,10 @@ export class TuiApp {
 	private async loadTranscript(sessionFile: string): Promise<import("./views/transcript.js").TranscriptEntry[]> {
 		try {
 			const { SessionManager } = await import("@mariozechner/pi-coding-agent");
-			const sm = SessionManager.open(sessionFile);
+			const resolvedPath = isAbsolute(sessionFile)
+				? sessionFile
+				: resolve(this.cwd, sessionFile);
+			const sm = SessionManager.open(resolvedPath);
 			const entries = sm.getEntries();
 			return parseTranscript(entries);
 		} catch (err) {

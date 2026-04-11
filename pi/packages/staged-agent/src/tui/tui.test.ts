@@ -1,5 +1,8 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { visibleWidth } from "@mariozechner/pi-tui";
 import {
 	colored, statusIcon, statusLabel, formatDuration, horizontalRule, padRight,
@@ -358,6 +361,13 @@ describe("HelpView", () => {
 		view.handleInput("q");
 		assert.deepEqual(actions, ["quit"]);
 	});
+
+	it("describes quit as exiting after work drains", () => {
+		const view = new HelpView();
+		const output = view.render(80).join("\n");
+		const plain = stripAnsi(output);
+		assert.ok(plain.includes("Quit / finish current session"));
+	});
 });
 
 // ---------------------------------------------------------------------------
@@ -421,6 +431,37 @@ describe("EventLogView edge cases", () => {
 		const output = view.render(80).join("\n");
 		const plain = stripAnsi(output);
 		assert.ok(plain.includes("No events yet"));
+	});
+});
+
+describe("TuiApp hardening", () => {
+	it("resolves transcript paths relative to cwd", async () => {
+		const { EventLog } = await import("../event-log.js");
+		const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "staged-agent-tui-"));
+		const sessionPath = path.join(tmpDir, "session.jsonl");
+
+		const capturedPaths: string[] = [];
+		const originalOpen = (await import("@mariozechner/pi-coding-agent")).SessionManager.open;
+		(await import("@mariozechner/pi-coding-agent")).SessionManager.open = ((p: string) => {
+			capturedPaths.push(p);
+			return {
+				getEntries: () => [],
+			};
+		}) as unknown as typeof originalOpen;
+
+		try {
+			const runner = {
+				jobId: "j1",
+				getEventLog: () => new EventLog(),
+			} as unknown as import("../job-runner.js").JobRunner;
+			const app = new (await import("./app.js")).TuiApp(runner, makeDefinition(), { cwd: tmpDir });
+
+			await (app as any).loadTranscript("session.jsonl");
+			assert.deepEqual(capturedPaths, [sessionPath]);
+		} finally {
+			(await import("@mariozechner/pi-coding-agent")).SessionManager.open = originalOpen;
+			fs.rmSync(tmpDir, { recursive: true, force: true });
+		}
 	});
 });
 

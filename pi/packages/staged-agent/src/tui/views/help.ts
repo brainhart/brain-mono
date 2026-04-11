@@ -46,7 +46,7 @@ const SECTIONS: Array<{ title: string; keys: Array<[string, string]> }> = [
 			["L", "Event log"],
 			["d", "DAG visualization"],
 			["?", "Close this help"],
-			["q", "Quit TUI (job continues)"],
+			["q", "Quit / finish current session"],
 		],
 	},
 ];

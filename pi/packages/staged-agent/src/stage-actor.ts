@@ -271,7 +271,6 @@ export class StageActor extends Actor<StageActorMsg> {
 
 		if (slot.activeActor) {
 			slot.activeActor.send({ type: "cancel" });
-			slot.activeActor = undefined;
 		} else if (!slot.done && slot.attemptCount < this.maxTaskAttempts) {
 			this.spawnTask(slot);
 		}
@@ -351,7 +350,6 @@ export class StageActor extends Actor<StageActorMsg> {
 		const slot = this.slots.get(taskId);
 		if (slot?.activeActor) {
 			slot.activeActor.send({ type: "cancel" });
-			slot.activeActor = undefined;
 		}
 	}
 

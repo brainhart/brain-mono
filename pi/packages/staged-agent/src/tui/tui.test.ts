@@ -12,9 +12,11 @@ import {
 import { DashboardView } from "./views/dashboard.js";
 import { StageView } from "./views/stage.js";
 import { TaskView } from "./views/task.js";
+import { TaskActionMenuView } from "./views/task-actions.js";
 import { HelpView } from "./views/help.js";
 import type { JobState } from "../state.js";
 import type { JobDefinition } from "../types.js";
+import { singleTaskProfile } from "../profiles.js";
 
 function stripAnsi(text: string): string {
 	return text.replace(/\x1b\[[0-9;]*m/g, "");
@@ -448,6 +450,38 @@ describe("TaskView", () => {
 		assert.ok(plain.includes("TypeScript package with a staged TUI workflow."));
 	});
 
+	it("scrolls to the latest bottom after transcript content grows", () => {
+		const def = makeDefinition();
+		const taskDef = def.stages[1].tasks[1];
+		const view = new TaskView("impl-t2", taskDef);
+		const state = makeState();
+		const task = state.tasks.get("impl-t2");
+		assert.ok(task);
+		task.progressEntries = [];
+		task.progressLines = [];
+		view.setState(state);
+
+		// Seed the internal scroll bounds with the shorter pre-transcript layout.
+		view.render(80);
+		view.setTranscriptEntries(
+			Array.from({ length: 80 }, (_, index) => ({
+				role: "user",
+				content: `transcript line ${index}`,
+				timestamp: Date.now() + index,
+			} satisfies UserMessage)),
+			"pi-session-7",
+			"/tmp",
+		);
+
+		const oldContentHeight = (view as any).contentHeight as number;
+		view.handleInput("G");
+		view.render(80);
+		assert.ok(
+			(view as any).scrollOffset > oldContentHeight,
+			"bottom navigation should use the expanded layout instead of the stale pre-growth height",
+		);
+	});
+
 	it("renders tool executions using interactive transcript components", () => {
 		const def = makeDefinition();
 		const taskDef = def.stages[1].tasks[0];
@@ -514,6 +548,21 @@ describe("TaskView", () => {
 		const plain = stripAnsi(output);
 		assert.ok(plain.includes("read"));
 		assert.ok(plain.includes("Recovered orphaned tool result"));
+	});
+});
+
+describe("TaskActionMenuView", () => {
+	it("shows fork action when interactive forking is enabled", () => {
+		const view = new TaskActionMenuView("impl-t1", {
+			canCancel: true,
+			canTranscript: true,
+			canFork: true,
+			canPauseWithNote: true,
+			canRetryWithNote: true,
+		});
+		const plain = stripAnsi(view.render(80).join("\n"));
+		assert.ok(plain.includes("Fork as new task"));
+		assert.ok(plain.includes("1-9"));
 	});
 });
 
@@ -705,6 +754,93 @@ describe("TuiApp hardening", () => {
 		const plain = stripAnsi(view.render(80).join("\n"));
 		assert.ok(plain.includes("Pi session log"));
 		assert.ok(plain.includes("Loaded transcript entry"));
+	});
+
+	it("refreshes inline task transcripts on timer ticks", async () => {
+		const originalSetInterval = globalThis.setInterval;
+		const originalClearInterval = globalThis.clearInterval;
+		let intervalCallback: (() => void) | undefined;
+
+		globalThis.setInterval = (((callback: TimerHandler) => {
+			intervalCallback = callback as () => void;
+			return { ref: () => undefined, unref: () => undefined } as unknown as ReturnType<typeof setInterval>;
+		}) as unknown) as typeof setInterval;
+		globalThis.clearInterval = (() => undefined) as typeof clearInterval;
+
+		try {
+			const log = {
+				subscribe: () => () => undefined,
+				getEvents: () => [],
+			};
+			const runner = {
+				jobId: "j1",
+				getEventLog: () => log,
+			} as unknown as import("../job-runner.js").JobRunner;
+			const app = new (await import("./app.js")).TuiApp(runner, makeDefinition(), { cwd: "/tmp" });
+			const view = new TaskView("impl-t1", makeDefinition().stages[1].tasks[0]);
+
+			(app as any).viewStack = [{ type: "task", view, taskId: "impl-t1" }];
+			(app as any).tui.clear = () => undefined;
+			(app as any).tui.addChild = () => undefined;
+			(app as any).tui.setFocus = () => undefined;
+			(app as any).tui.start = () => undefined;
+			(app as any).tui.stop = () => undefined;
+
+			let refreshCount = 0;
+			(app as any).refreshLiveViews = () => {
+				refreshCount++;
+			};
+
+			app.start();
+			assert.ok(intervalCallback, "expected start() to install a render timer");
+
+			intervalCallback?.();
+			assert.equal(refreshCount, 1, "timer tick should refresh live views before requesting a render");
+
+			app.stop();
+		} finally {
+			globalThis.setInterval = originalSetInterval;
+			globalThis.clearInterval = originalClearInterval;
+		}
+	});
+
+	it("submits forked tasks with source task context", async () => {
+		const { EventLog } = await import("../event-log.js");
+		const submitted: Array<{ prompt: string; profile: import("../profiles.js").JobProfile | undefined }> = [];
+		const runner = {
+			jobId: "j1",
+			getEventLog: () => new EventLog(),
+			peekNextStageCounter: () => 7,
+			getDefaultProfile: () => singleTaskProfile,
+			submitTask: (prompt: string, profile?: import("../profiles.js").JobProfile) => {
+				submitted.push({ prompt, profile });
+			},
+		} as unknown as import("../job-runner.js").JobRunner;
+		const app = new (await import("./app.js")).TuiApp(runner, makeDefinition(), {
+			cwd: "/tmp",
+			interactive: true,
+			profiles: [singleTaskProfile],
+		});
+		(app as any).state = makeState();
+		(app as any).tui.clear = () => undefined;
+		(app as any).tui.addChild = () => undefined;
+		(app as any).tui.setFocus = () => undefined;
+		(app as any).tui.requestRender = () => undefined;
+
+		(app as any).openForkPrompt("impl-t1");
+		const overlay = (app as any).textPromptOverlay;
+		assert.ok(overlay, "forking should open a task prompt overlay");
+		for (const ch of "Add regression coverage for the auth follow-up") {
+			overlay.handleInput(ch);
+		}
+		overlay.handleInput("\r");
+
+		assert.equal(submitted.length, 1);
+		assert.equal(submitted[0]?.profile, singleTaskProfile);
+		assert.match(submitted[0]?.prompt ?? "", /Follow-up request:\nAdd regression coverage for the auth follow-up/);
+		assert.match(submitted[0]?.prompt ?? "", /Source task id: impl-t1/);
+		assert.match(submitted[0]?.prompt ?? "", /Source task prompt:\nImplement auth module/);
+		assert.match(submitted[0]?.prompt ?? "", /Source task result summary:\nAuth done/);
 	});
 });
 

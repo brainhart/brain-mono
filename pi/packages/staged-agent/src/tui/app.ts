@@ -125,6 +125,7 @@ export class TuiApp {
 		});
 
 		this.renderTimer = setInterval(() => {
+			this.refreshLiveViews();
 			this.tui.requestRender();
 		}, 1000);
 	}
@@ -184,6 +185,21 @@ export class TuiApp {
 				case "dag": entry.view.setState(this.state); break;
 				case "transcript":
 					this.maybeRefreshTranscriptView(entry);
+					break;
+			}
+		}
+	}
+
+	private refreshLiveViews(): void {
+		for (const entry of this.viewStack) {
+			switch (entry.type) {
+				case "task":
+					this.maybeLoadInlineTranscript(entry.view, entry.taskId);
+					break;
+				case "transcript":
+					this.maybeRefreshTranscriptView(entry);
+					break;
+				default:
 					break;
 			}
 		}
@@ -315,6 +331,7 @@ export class TuiApp {
 		const overlay = new TaskActionMenuView(taskId, {
 			canCancel: ts.status === "running" && !!ts.stageId,
 			canTranscript: this.getTranscriptSession(taskId).sessionFile !== undefined,
+			canFork: this.interactive,
 			canPauseWithNote: !!ts.stageId,
 			canRetryWithNote: !!ts.stageId && ts.status !== "completed",
 		});
@@ -332,12 +349,6 @@ export class TuiApp {
 			}
 
 			const current = this.state.tasks.get(taskId);
-			if (!current?.stageId) {
-				this.taskActionOverlay = undefined;
-				this.syncActiveView();
-				this.tui.requestRender();
-				return;
-			}
 
 			switch (a.type) {
 				case "transcript":
@@ -349,19 +360,47 @@ export class TuiApp {
 						transcript.sessionId,
 					);
 					return;
+				case "fork_task":
+					this.taskActionOverlay = undefined;
+					this.openForkPrompt(taskId);
+					return;
 				case "cancel_task":
+					if (!current?.stageId) {
+						this.taskActionOverlay = undefined;
+						this.syncActiveView();
+						this.tui.requestRender();
+						return;
+					}
 					this.taskActionOverlay = undefined;
 					this.runner.cancelTask(taskId, current.stageId);
 					this.syncActiveView();
 					this.tui.requestRender();
 					return;
 				case "note":
+					if (!current?.stageId) {
+						this.taskActionOverlay = undefined;
+						this.syncActiveView();
+						this.tui.requestRender();
+						return;
+					}
 					this.openTaskNotePrompt(taskId, current.stageId, "note");
 					return;
 				case "retry_with_note":
+					if (!current?.stageId) {
+						this.taskActionOverlay = undefined;
+						this.syncActiveView();
+						this.tui.requestRender();
+						return;
+					}
 					this.openTaskNotePrompt(taskId, current.stageId, "retry");
 					return;
 				case "pause_with_note":
+					if (!current?.stageId) {
+						this.taskActionOverlay = undefined;
+						this.syncActiveView();
+						this.tui.requestRender();
+						return;
+					}
 					this.openTaskNotePrompt(taskId, current.stageId, "pause");
 					return;
 				default:
@@ -447,6 +486,8 @@ export class TuiApp {
 			`New task · ${profile.name}`,
 			"Describe what you want the agent to do.",
 			"e.g. Refactor the auth module to use JWT",
+			"Prompt",
+			"Enter a task description to continue.",
 		);
 		overlay.onAction = (a) => {
 			if (a.type === "cancel") {
@@ -456,18 +497,112 @@ export class TuiApp {
 				return;
 			}
 			this.textPromptOverlay = undefined;
-			const counter = this.runner.peekNextStageCounter();
-			const { stages } = profile.generate(a.value, counter);
-			for (const s of stages) {
-				this.dynamicStageDefs.set(s.id, s);
-			}
-			this.runner.submitTask(a.value, profile);
+			this.submitPromptWithProfile(a.value, profile);
 			this.syncActiveView();
 			this.tui.requestRender();
 		};
 		this.textPromptOverlay = overlay;
 		this.syncActiveView();
 		this.tui.requestRender();
+	}
+
+	private openForkPrompt(taskId: TaskId): void {
+		const profiles = this.availableProfiles;
+		if (profiles.length <= 1) {
+			this.openForkTextPrompt(taskId, profiles[0] ?? this.runner.getDefaultProfile());
+			return;
+		}
+
+		const picker = new ProfilePickerView(profiles);
+		picker.onAction = (a) => {
+			if (a.type === "cancel") {
+				this.profilePickerOverlay = undefined;
+				this.syncActiveView();
+				this.tui.requestRender();
+				return;
+			}
+			if (a.type === "quit") {
+				this.profilePickerOverlay = undefined;
+				this.requestQuit();
+				return;
+			}
+			this.profilePickerOverlay = undefined;
+			this.openForkTextPrompt(taskId, a.profile);
+		};
+		this.profilePickerOverlay = picker;
+		this.syncActiveView();
+		this.tui.requestRender();
+	}
+
+	private openForkTextPrompt(taskId: TaskId, profile: JobProfile): void {
+		const overlay = new TextPromptView(
+			`Fork task · ${profile.name}`,
+			`Describe the follow-up work to spawn from ${taskId}.`,
+			"e.g. Extract the retry logic into a shared helper",
+			"Prompt",
+			"Enter a follow-up task description to continue.",
+		);
+		overlay.onAction = (a) => {
+			if (a.type === "cancel") {
+				this.textPromptOverlay = undefined;
+				this.syncActiveView();
+				this.tui.requestRender();
+				return;
+			}
+			this.textPromptOverlay = undefined;
+			this.submitPromptWithProfile(this.buildForkPrompt(taskId, a.value), profile);
+			this.syncActiveView();
+			this.tui.requestRender();
+		};
+		this.textPromptOverlay = overlay;
+		this.syncActiveView();
+		this.tui.requestRender();
+	}
+
+	private submitPromptWithProfile(prompt: string, profile: JobProfile): void {
+		const counter = this.runner.peekNextStageCounter();
+		const { stages } = profile.generate(prompt, counter);
+		for (const s of stages) {
+			this.dynamicStageDefs.set(s.id, s);
+		}
+		this.runner.submitTask(prompt, profile);
+	}
+
+	private buildForkPrompt(taskId: TaskId, followUpPrompt: string): string {
+		const taskDef = this.findTaskDef(taskId);
+		const taskState = this.state.tasks.get(taskId);
+		const lines = [
+			"Treat this as a follow-up task forked from an earlier staged-agent task.",
+			"Use the source task details as background context while focusing on the new request.",
+			"",
+			"Follow-up request:",
+			followUpPrompt,
+			"",
+			`Source task id: ${taskId}`,
+			`Source task status: ${taskState?.status ?? "unknown"}`,
+		];
+		if (taskDef?.prompt) {
+			lines.push("", "Source task prompt:", taskDef.prompt);
+		}
+		if (taskState?.result?.summary) {
+			lines.push("", "Source task result summary:", taskState.result.summary);
+		} else if (taskState?.error) {
+			lines.push("", "Source task error:", taskState.error);
+		}
+		if (taskState?.sessionId) {
+			lines.push("", `Source session id: ${taskState.sessionId}`);
+		}
+		if (taskDef?.context && Object.keys(taskDef.context).length > 0) {
+			lines.push("", "Source task context:", JSON.stringify(taskDef.context, null, 2));
+		}
+		const notes = taskState?.operatorNotes.slice(-4) ?? [];
+		if (notes.length > 0) {
+			lines.push("", "Recent operator notes:");
+			for (const note of notes) {
+				lines.push(`- [${note.action}] ${note.note}`);
+			}
+		}
+		return lines.join("\n");
 	}
 
 	private get availableProfiles(): JobProfile[] {

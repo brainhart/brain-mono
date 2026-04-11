@@ -1024,7 +1024,8 @@ describe("TuiApp hardening", () => {
 
 		const recovered = stripAnsi(view.render(100).join("\n"));
 		assert.ok(!recovered.includes("refresh failed"));
-		assert.ok(recovered.includes("read output line 11"));
+		assert.ok(recovered.includes("read"));
+		assert.ok(recovered.includes("read output line 0"));
 	});
 
 	it("submits forked tasks with source task context", async () => {

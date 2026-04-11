@@ -88,14 +88,14 @@ export class TaskView implements Component {
 		if (nav) {
 			switch (nav.type) {
 				case "up":   case "back": {
-					if (nav.type === "up") { this.scrollOffset = clampScroll(this.scrollOffset - 1, this.contentHeight); return; }
+					if (nav.type === "up") { this.scrollOffset = Math.max(0, this.scrollOffset - 1); return; }
 					this.onAction?.({ type: "back" }); return;
 				}
-				case "down":  this.scrollOffset = clampScroll(this.scrollOffset + 1, this.contentHeight); return;
+				case "down":  this.scrollOffset += 1; return;
 				case "top":   this.scrollOffset = 0; return;
-				case "bottom": this.scrollOffset = clampScroll(this.contentHeight, this.contentHeight); return;
-				case "half_page_up":   this.scrollOffset = clampScroll(this.scrollOffset - 15, this.contentHeight); return;
-				case "half_page_down": this.scrollOffset = clampScroll(this.scrollOffset + 15, this.contentHeight); return;
+				case "bottom": this.scrollOffset = Number.MAX_SAFE_INTEGER; return;
+				case "half_page_up":   this.scrollOffset = Math.max(0, this.scrollOffset - 15); return;
+				case "half_page_down": this.scrollOffset += 15; return;
 				case "enter": return;
 				case "help":  this.onAction?.({ type: "help" }); return;
 				case "quit":  this.onAction?.({ type: "quit" }); return;

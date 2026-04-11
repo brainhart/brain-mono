@@ -448,6 +448,38 @@ describe("TaskView", () => {
 		assert.ok(plain.includes("TypeScript package with a staged TUI workflow."));
 	});
 
+	it("scrolls to the latest bottom after transcript content grows", () => {
+		const def = makeDefinition();
+		const taskDef = def.stages[1].tasks[1];
+		const view = new TaskView("impl-t2", taskDef);
+		const state = makeState();
+		const task = state.tasks.get("impl-t2");
+		assert.ok(task);
+		task.progressEntries = [];
+		task.progressLines = [];
+		view.setState(state);
+
+		// Seed the internal scroll bounds with the shorter pre-transcript layout.
+		view.render(80);
+		view.setTranscriptEntries(
+			Array.from({ length: 80 }, (_, index) => ({
+				role: "user",
+				content: `transcript line ${index}`,
+				timestamp: Date.now() + index,
+			} satisfies UserMessage)),
+			"pi-session-7",
+			"/tmp",
+		);
+
+		const oldContentHeight = (view as any).contentHeight as number;
+		view.handleInput("G");
+		view.render(80);
+		assert.ok(
+			(view as any).scrollOffset > oldContentHeight,
+			"bottom navigation should use the expanded layout instead of the stale pre-growth height",
+		);
+	});
+
 	it("renders tool executions using interactive transcript components", () => {
 		const def = makeDefinition();
 		const taskDef = def.stages[1].tasks[0];
@@ -705,6 +737,54 @@ describe("TuiApp hardening", () => {
 		const plain = stripAnsi(view.render(80).join("\n"));
 		assert.ok(plain.includes("Pi session log"));
 		assert.ok(plain.includes("Loaded transcript entry"));
+	});
+
+	it("refreshes inline task transcripts on timer ticks", async () => {
+		const originalSetInterval = globalThis.setInterval;
+		const originalClearInterval = globalThis.clearInterval;
+		let intervalCallback: (() => void) | undefined;
+
+		globalThis.setInterval = (((callback: TimerHandler) => {
+			intervalCallback = callback as () => void;
+			return { ref: () => undefined, unref: () => undefined } as unknown as ReturnType<typeof setInterval>;
+		}) as unknown) as typeof setInterval;
+		globalThis.clearInterval = (() => undefined) as typeof clearInterval;
+
+		try {
+			const log = {
+				subscribe: () => () => undefined,
+				getEvents: () => [],
+			};
+			const runner = {
+				jobId: "j1",
+				getEventLog: () => log,
+			} as unknown as import("../job-runner.js").JobRunner;
+			const app = new (await import("./app.js")).TuiApp(runner, makeDefinition(), { cwd: "/tmp" });
+			const view = new TaskView("impl-t1", makeDefinition().stages[1].tasks[0]);
+
+			(app as any).viewStack = [{ type: "task", view, taskId: "impl-t1" }];
+			(app as any).tui.clear = () => undefined;
+			(app as any).tui.addChild = () => undefined;
+			(app as any).tui.setFocus = () => undefined;
+			(app as any).tui.start = () => undefined;
+			(app as any).tui.stop = () => undefined;
+
+			let refreshCount = 0;
+			(app as any).refreshLiveViews = () => {
+				refreshCount++;
+			};
+
+			app.start();
+			assert.ok(intervalCallback, "expected start() to install a render timer");
+
+			intervalCallback?.();
+			assert.equal(refreshCount, 1, "timer tick should refresh live views before requesting a render");
+
+			app.stop();
+		} finally {
+			globalThis.setInterval = originalSetInterval;
+			globalThis.clearInterval = originalClearInterval;
+		}
 	});
 });
 

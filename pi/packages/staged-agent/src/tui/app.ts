@@ -125,6 +125,7 @@ export class TuiApp {
 		});
 
 		this.renderTimer = setInterval(() => {
+			this.refreshLiveViews();
 			this.tui.requestRender();
 		}, 1000);
 	}
@@ -184,6 +185,21 @@ export class TuiApp {
 				case "dag": entry.view.setState(this.state); break;
 				case "transcript":
 					this.maybeRefreshTranscriptView(entry);
+					break;
+			}
+		}
+	}
+
+	private refreshLiveViews(): void {
+		for (const entry of this.viewStack) {
+			switch (entry.type) {
+				case "task":
+					this.maybeLoadInlineTranscript(entry.view, entry.taskId);
+					break;
+				case "transcript":
+					this.maybeRefreshTranscriptView(entry);
+					break;
+				default:
 					break;
 			}
 		}
